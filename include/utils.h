@@ -46,7 +46,7 @@ typedef struct {
     void type##BufferClear(VM* vm, type##Buffer* buf);
 
 // 定义buffer方法
-#defind DEFINE_BUFFER_METHOD(type) \
+#define DEFINE_BUFFER_METHOD(type) \
     void type##BufferInit(type##Buffer* buf) { \
         buf->datas = NULL; \
         buf->count = buf->capacity = 0;\
