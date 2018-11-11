@@ -1,6 +1,4 @@
-<<<<<<< HEAD
 .vscode
-=======
 # Prerequisites
 *.d
 
@@ -53,4 +51,3 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
->>>>>>> defe8a18b5b1263736b5873efcdfc2363b910790

@@ -37,9 +37,8 @@ typedef struct {
         /* 缓冲区已使用的元素个数 */
         uint32_t count; \
         /* 缓冲区容量用 */
-        uint32_t capacity; \
-
-    } type##Buffer; \
+        uint32_t capacity;\
+    } type##Buffer;\
     void type##BufferInit(type##Buffer* buf); \
     void type##BufferWrite(VM* vm, type##Buffer* buf, type data, uint32_t fillCount); \
     void type##BufferAdd(VM* vm, type##Buffer* buf, type data); \
