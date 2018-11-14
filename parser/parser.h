@@ -8,6 +8,7 @@ typedef enum {
     // 数据类型
     TOKEN_NUM,
     TOKEN_STRING,
+    TOKEN_ID,
     TOKEN_INTERPOLATION, // 内嵌表达式
     
     // 关键字

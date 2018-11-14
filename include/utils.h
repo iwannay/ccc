@@ -34,9 +34,9 @@ typedef struct {
     typedef struct {\
         /* 数据缓冲区 */ \
         type* datas;\
-        /* 缓冲区已使用的元素个数 */
+        /* 缓冲区已使用的元素个数 */ \
         uint32_t count; \
-        /* 缓冲区容量用 */
+        /* 缓冲区容量用 */\
         uint32_t capacity;\
     } type##Buffer;\
     void type##BufferInit(type##Buffer* buf); \

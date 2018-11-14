@@ -35,3 +35,67 @@ struct keywordToken keywordsToken[] = {
     {"import", 6, TOKEN_IMPORT},
     {"null", 0, TOKEN_UNKNOWN}
 };
+
+// 判断start是否为关键字并返回相应的token
+static TokenType idOrKeyword(const char* start, uint32_t length) {
+    uint32_t idx = 0;
+    while (keywordsToken[idx].keyword != NULL) {
+        if (keywordsToken[idx].length == length && \
+        memcmp(keywordsToken[idx].keyword, start, length) == 0) {
+            return keywordsToken[idx].token;
+        }
+        idx++;
+    }
+    return TOKEN_ID;
+}
+
+// 向前看一个字符
+char lookAheadChar(Parser* parser) {
+    return *parser->nextCharPtr;
+}
+
+// 获取下一个字符
+static void getNextChar(Parser* parser) {
+    parser->curChar = *parser->nextCharPtr++;
+}
+
+// 查看下一个字符是否为期望的
+static bool matchNextChar(Parser* parser, char expectedChar) {
+    if (lookAheadChar(parser) == expectedChar) {
+        getNextChar(parser);
+        return true;
+    }
+    return false;
+}
+
+// 跳过连续的空白字符
+static void skipBlanks(Parser* parser) {
+    while(isspace(parser->curChar)) {
+        if (parser->curChar == '\n') {
+            parser->curToken.lineNo++;
+        }
+        getNextChar(parser);
+    }
+}
+
+static void parseId(Parser* parser, TokenType type) {
+    while (isalnum(parser->curChar) || parser->curChar == '_') {
+        getNextChar(parser);
+    }
+
+    // nextCharPtr 会指向第1个不合法字符的下一个字符，因此-1
+    uint32_t length = (uint32_t) (parser->nextCharPtr - parser->curToken.start - 1);
+    if (type != TOKEN_UNKNOWN) {
+        parser->curToken.type = type;
+    } else {
+        parser->curToken.type = idOrKeyword(parser->curToken.start, length);
+    }
+    parser->curToken.length = length;
+}
+
+// 解析unicode 码点
+static void parseUincodeCodePoint(Parser* parser, ByteBuffer* buf) {
+    uint32_t idx = 0;
+    int value = 0;
+    uint8_t digit = 0;
+}
