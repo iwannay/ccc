@@ -120,7 +120,7 @@ static void parseUincodeCodePoint(Parser* parser, ByteBuffer* buf) {
     ASSERT(byteNum != 0, "utf8 encode bytes should be between 1 and 4!");
 
     // 为代码通用，下面会直接写buf->datas, 在此先写入byteNum个0, 以保证事先有byteNum个空间
-    ByteBufferFillWrite(parser->vim, buf, 0, byteNum);
+    ByteBufferFillWrite(parser->vm, buf, 0, byteNum);
 
     // 把value 编码为UTF-8后写入缓冲区buf
     encodeUtf8(buf->datas + buf->count - byteNum, value);
@@ -159,7 +159,7 @@ static void parseString(Parser* parser) {
             getNextChar(parser);
             switch (parser->curChar) {
                 case '0':
-                    ByteBufferAdd(parser->vm, $str, '\0');
+                    ByteBufferAdd(parser->vm, &str, '\0');
                     break;
                 case 'a':
                     ByteBufferAdd(parser->vm, &str, '\a');
@@ -197,4 +197,140 @@ static void parseString(Parser* parser) {
         }
     }
     ByteBufferClear(parser->vm, &str, parser->curChar);
+}
+
+static void skipAline(Parser* parser) {
+    getNextChar(parser);
+    while (parser->curChar != '\0') {
+        parser->curToken.lineNo++;
+        getNextChar(parser);
+        break;
+    }
+    getNextChar(parser);
+}
+
+// 跳过行注释或区块注释
+static void skipComment(Parser* parser) {
+    char nextChar = lookAheadChar(parser);
+    if (parser->curChar == '/') {
+        skipAline(parser);
+    } else {
+        while (nextChar != '*' && nextChar != '\0') {
+            getNextChar(parser);
+            if (parser->curChar == '\n') {
+                parser->curToken.lineNo++;
+            }
+            nextChar = lookAheadChar(parser);
+        }
+
+        if (matchNextChar(parser, '*')) {
+            if (!matchNextChar(parser, '/')) {
+                LEX_ERROR(parser, "expect '/' after '*'!");
+            }
+            getNextChar(parser);
+        } else {
+            LEX_ERROR(parser, "expect '*/' before file end!");
+        }
+    }
+    skipBlanks(parser);
+}
+
+
+// 获得下一个token
+void getNextToken(Parser* parser) {
+    parser->preToken = parser->curToken;
+    skipBlanks(parser); // 跳过待识别单词之前的空格
+    parser->curToken.type = TOKEN_EOF;
+    parser->curToken.length = 0;
+    parser->curToken.start = parser->nextCharPtr - 1;
+    while (parser->curChar != '\0') {
+        switch (parser->curChar) {
+            case ',':
+                parser->curToken.type = TOKEN_COMMA;
+                break;
+            case ':':
+                parser->curToken.type = TOKEN_COLON;
+                break;
+            case '(':
+                if (parser->interpolationExpectRightParenNum > 0) {
+                    parser->interpolationExpectRightParenNum++;
+                }
+                parser->curToken.type = TOKEN_LEFT_PAREN;
+                break;
+            case ')':
+                if (parser->interpolationExpectRightParenNum > 0 ) {
+                    parser->interpolationExpectRightParenNum--;
+                    if (parser->interpolationExpectRightParenNum == 0) {
+                        parseString(parser);
+                        break;
+                    }
+                }
+                parser->curToken.type = TOKEN_RIGHT_PAREN;
+                break;
+            case '[':
+                parser->curToken.type = TOKEN_LEFT_BRACKET;
+                break;
+            case ']':
+                parser->curToken.type = TOKEN_RIGHT_BRACKET;
+                break;
+            case '{':
+                parser->curToken.type = TOKEN_LEFT_BRACE;
+                break;
+            case '}':
+                parser->curToken.type = TOKEN_RIGHT_BRACE;
+                break;
+            case '.':
+                if (matchNextChar(parser, '.')) {
+                    parser->curToken.type = TOKEN_DOT_DOT;
+                } else {
+                    parser->curToken.type = TOKEN_DOT;
+                }
+                break;
+            case '=':
+                if (matchNextChar(parser, '=')) {
+                    parser->curToken.type = TOKEN_EQUAL;
+                } else {
+                    parser->curToken.type = TOKEN_ASSIGN;
+                }
+                break;
+            case '+':
+                parser->curToken.type = TOKEN_ADD;
+                break;
+            case '-':
+                parser->curToken.type = TOKEN_SUB;
+                break;
+            case '*':
+                parser->curToken.type = TOKEN_MUL;
+                break;
+            case '/':
+                // 跳过注释'//' 或 '/*'
+                if (matchNextChar(parser, '/') || matchNextChar(parser, '*')) {
+                    skipComment(parser);
+                    // 重置下一个token
+                    parser->curToken.start = parser->nextCharPtr - 1;
+                    continue;
+                } else { // '/'
+                    parser->curToken.type = TOKEN_DIV;
+                }
+                break;
+            case '%':
+                parser->curToken.type = TOKEN_MOD;
+                break;
+            case '&':
+                if (matchNextChar(parser, '&')) {
+                    parser->curToken.type = TOKEN_LOGIC_AND;
+                } else {
+                    parser->curToken.type = TOKEN_BIT_AND;
+                }
+                break;
+            case '|':
+                if (matchNextChar(parser, '|')) {
+                    parser->curToken.type = TOKEN_LOGIC_OR;
+                } else {
+                    parser->curToken.type = TOKEN_BIT_OR;
+                }
+                break;
+
+        }
+    }
 }
