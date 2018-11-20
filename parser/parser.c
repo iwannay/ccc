@@ -330,7 +330,102 @@ void getNextToken(Parser* parser) {
                     parser->curToken.type = TOKEN_BIT_OR;
                 }
                 break;
+            case '~':
+                parser->curToken.type = TOKEN_BIT_NOT;
+                break;
+            case '?':
+                parser->curToken.type = TOKEN_QUESTION;
+                break;
+            case '>':
+                if (matchNextChar(parser, '=')) {
+                    parser->curToken.type = TOKEN_GREATE_EQUAL;
+                } else if (matchNextChar(parser, '>')) {
+                    parser->curToken.type = TOKEN_BIT_SHIFT_RIGHT;
+                } else {
+                    parser->curToken.type = TOKEN_GREATE;
+                }
+                break;
+            case '<':
+                if (matchNextChar(parser, '=')) {
+                    parser->curToken.type = TOKEN_LESS_EQUAL;
+                } else if (matchNextChar(parser, '<')) {
+                    parser->curToken.type= TOKEN_BIT_SHIFT_LEFT;
+                } else {
+                    parser->curToken.type = TOKEN_LESS;
+                }
+                break;
+            case '!':
+                if (matchNextChar(parser, '=')) {
+                    parser->curToken.type = TOKEN_NOT_EQUAL;
+                } else {
+                    parser->curToken.type = TOKEN_LOGIC_NOT;
+                }
+                break;
+            case '"':
+                parseString(parser);
+                break;
+            default:
+                // 处理变量名和数字
+                // 进入此分支的字符肯定时数字或变量名的首字母
+                // 识别数字需要一些依赖，暂时不处理
 
+                // 若首字符是字母或"_"则是变量名
+                if (isalpha(parser->curChar) || parser->curChar == '_') {
+                    parseId(parser, TOKEN_UNKNOWN); // 解析变量名其余部分
+                } else {
+                    if (parser->curChar == '#' && matchNextChar(parser, '!')) {
+                        skipAline(parser);
+                        parser->curToken.start = parser->nextCharPtr - 1;
+                        // 重复下一个token起始位置
+                        continue;
+                    }
+                    LEX_ERROR(parser, "unsupport char:\'%c\', quite.", parser->curChar);
+                }
+                return;
         }
+
+        parser->curToken.length = (uint32_t)(parser->nextCharPtr - parser->curToken.start);
+        getNextChar(parser);
+        return;
     }
+}
+
+// 若当前token为expected则读入下一个token并返回true
+// 否则不读入token且返回false
+bool matchToken(Parser* parser, TokenType expected) {
+    if (parser->curToken.type == expected) {
+        getNextToken(parser);
+        return true;
+    }
+    return false;
+}
+
+// 断言当前token为expected并读入下一个token，否则报错errMsg
+void consumeCurToken(Parser* parser, TokenType expected, const char* errMsg) {
+    if (parser->curToken.type != expected) {
+        COMPILE_ERROR(parser, errMsg);
+    }
+    getNextToken(parser);
+}
+
+// 断言下一个token为expected，否则报错errMsg
+void consumeNextToken(Parser* parser, TokenType expected, const char* errMsg) {
+    getNextToken(parser);
+    if (parser->curToken.type != expected) {
+        COMPILE_ERROR(parser, errMsg);
+    }
+}
+
+void initParser(VM* vm, Parser* parser, const char* file, const char* sourceCode) {
+    parser->file = file;
+    parser->sourceCode = sourceCode;
+    parser->curChar = *parser->sourceCode;
+    parser->nextCharPtr = parser->sourceCode + 1;
+    parser->curToken.lineNo = 1;
+    parser->curToken.type = TOKEN_UNKNOWN;
+    parser->curToken.start = NULL;
+    parser->curToken.length = 0;
+    parser->preToken = parser->curToken;
+    parser->interpolationExpectRightParenNum = 0;
+    parser->vm = vm;
 }
