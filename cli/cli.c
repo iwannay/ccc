@@ -23,12 +23,12 @@ static void runFile(const char* path) {
     #include "token.list"
     while (parser.curToken.type != TOKEN_EOF) {
         getNextToken(&parser);
-        printf("%dL: %s [", parser.curToken.lineNo, tokenArray[parser.curToken.type, "]");
+        printf("%dL: %s [", parser.curToken.lineNo, tokenArray[parser.curToken.type], "]");
         uint32_t idx = 0;
         while (idx < parser.curToken.length) {
-            printf("%c", *(parser.curToken.start+idx++))
+            printf("%c", *(parser.curToken.start+idx++));
         }
-        printf(")\n")
+        printf(")\n");
     }
 }
 
@@ -36,8 +36,8 @@ int main(int argc, const char** argv) {
     if (argc == 1) {
         ;
     } else {
-        runFile(argv[1])
+        runFile(argv[1]);
     }
 
-    return 0
+    return 0;
 }
