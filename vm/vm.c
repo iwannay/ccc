@@ -8,7 +8,7 @@ void initVM(VM* vm) {
 }
 
 VM* newVM() {
-    VM* vm = (VM*)malloc(sizeof(VM))
+    VM* vm = (VM*)malloc(sizeof(VM));
     if (vm == NULL) {
         MEM_ERROR("allocate VM failed!");
     }

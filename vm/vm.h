@@ -1,5 +1,5 @@
 #ifndef _VM_VM_H
-#define __VM_VM_H
+#define _VM_VM_H
 #include "common.h"
 
 struct vm {

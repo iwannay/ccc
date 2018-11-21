@@ -11,7 +11,7 @@
 
 void* memManager(VM* vm, void* ptr, uint32_t oldSize, uint32_t newSize) {
     // 累计系统分配的总内存
-    vm->allocatedBytes += newSize - oldSize
+    vm->allocatedBytes += newSize - oldSize;
 
     // 避免realloc(Null, 0)定义的新地址, 此地址不能被释放
     if (newSize == 0) {
@@ -19,7 +19,7 @@ void* memManager(VM* vm, void* ptr, uint32_t oldSize, uint32_t newSize) {
         return NULL;
     }
 
-    return realloc(ptr, newSize)
+    return realloc(ptr, newSize);
 }
 
 // 找出大于等于v最近的2次冥
@@ -40,7 +40,7 @@ DEFINE_BUFFER_METHOD(Int)
 DEFINE_BUFFER_METHOD(Char)
 DEFINE_BUFFER_METHOD(Byte)
 
-void symboltableClear(VM* vim, SymbolTable* buffer) {
+void symboltableClear(VM* vm, SymbolTable* buffer) {
     uint32_t idx = 0;
     while (idx < buffer->count) {
         memManager(vm, buffer->datas[idx++].str, 0, 0);
@@ -50,7 +50,7 @@ void symboltableClear(VM* vim, SymbolTable* buffer) {
 
 // 通用报错函数
 void errorReport(void* parser, ErrorType errorType, const char* fmt, ...) {
-    char buffer[DEFAULT_BUFFER_SIZE] = {'\0'}
+    char buffer[DEFAULT_BUFFER_SIZE] = {'\0'};
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buffer, DEFAULT_BUFFER_SIZE, fmt, ap);
