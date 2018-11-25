@@ -40,7 +40,7 @@ typedef struct {
         uint32_t capacity;\
     } type##Buffer;\
     void type##BufferInit(type##Buffer* buf); \
-    void type##BufferWrite(VM* vm, type##Buffer* buf, type data, uint32_t fillCount); \
+    void type##BufferFillWrite(VM* vm, type##Buffer* buf, type data, uint32_t fillCount); \
     void type##BufferAdd(VM* vm, type##Buffer* buf, type data); \
     void type##BufferClear(VM* vm, type##Buffer* buf);
 
@@ -99,7 +99,7 @@ void SymbolTableClear(VM*, SymbolTable* buffer);
 
 #define IO_ERROR(...) errorReport(NULL, ERROR_IO, __VA_ARGS__)
 #define MEM_ERROR(...) errorReport(NULL, ERROR_MEM, __VA_ARGS__)
-#define LEX_ERROR(...) errorReport(parser, ERROR_LEX, __VA_ARGS__)
+#define LEX_ERROR(parser, ...) errorReport(parser, ERROR_LEX, __VA_ARGS__)
 #define COMPILE_ERROR(parser, ...) errorReport(parser, ERROR_COMPILE, __VA_ARGS__)
 #define RUN_ERROR(...) errorReport(NULL, ERROR_RUNTIME, __VA_ARGS__)
 #define DEFAULT_BUFFER_SIZE 512

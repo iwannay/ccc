@@ -180,7 +180,7 @@ static void parseString(Parser* parser) {
                     ByteBufferAdd(parser->vm, &str, '\t');
                     break;
                 case 'u':
-                    ByteBufferAdd(parser->vm, &str, '\u');
+                    ByteBufferAdd(parser->vm, &str, 'u');
                     break;
                 case '"':
                     ByteBufferAdd(parser->vm, &str, '"');
@@ -196,7 +196,7 @@ static void parseString(Parser* parser) {
             ByteBufferAdd(parser->vm, &str, parser->curChar);
         }
     }
-    ByteBufferClear(parser->vm, &str, parser->curChar);
+    ByteBufferClear(parser->vm, &str);
 }
 
 static void skipAline(Parser* parser) {
