@@ -1,5 +1,6 @@
 #include <vm.h>
 #include <stdlib.h>
+#include <utils.h>
 
 // 初始化虚拟机
 void initVM(VM* vm) {

@@ -95,7 +95,7 @@ typedef enum {
 } ErrorType;
 
 void errorReport(void* parser, ErrorType errorType, const char* fmt, ...);
-void SymbolTableClear(VM*, SymbolTable* buffer);
+void symbolTableClear(VM*, SymbolTable* buffer);
 
 #define IO_ERROR(...) errorReport(NULL, ERROR_IO, __VA_ARGS__)
 #define MEM_ERROR(...) errorReport(NULL, ERROR_MEM, __VA_ARGS__)

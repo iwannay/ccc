@@ -6,7 +6,7 @@ DIRS = object include cli compiler parser vm gc
 CFILES = $(foreach dir, $(DIRS), $(wildcard $(dir)/*.c))
 OBJS = $(patsubst %.c,%.o,$(CFILES))
 $(TARGET):$(OBJS)
-	$(CC) -O $(TARGET) $(OBJS) $(CFLAGS)
+	$(CC) -o $(TARGET) $(OBJS) $(CFLAGS)
 clean:
 	-$(RM) $(TARGET) $(OBJS)
 

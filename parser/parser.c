@@ -180,7 +180,7 @@ static void parseString(Parser* parser) {
                     ByteBufferAdd(parser->vm, &str, '\t');
                     break;
                 case 'u':
-                    ByteBufferAdd(parser->vm, &str, 'u');
+                    parseUincodeCodePoint(parser, &str);
                     break;
                 case '"':
                     ByteBufferAdd(parser->vm, &str, '"');

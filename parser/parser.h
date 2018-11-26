@@ -104,7 +104,7 @@ struct parser {
 
 char lookAheadChar(Parser* parser);
 void getNextToken(Parser* parser);
-bool matchtoken(Parser* parser, TokenType expected);
+bool matchToken(Parser* parser, TokenType expected);
 void consumeCurToken(Parser* parser, TokenType expected, const char* errMsg);
 void consumeNextToken(Parser* parser, TokenType expected, const char* errMsg);
 uint32_t getByteNumOfEncodeUtf8(int value);
