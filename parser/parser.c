@@ -202,9 +202,11 @@ static void parseString(Parser* parser) {
 static void skipAline(Parser* parser) {
     getNextChar(parser);
     while (parser->curChar != '\0') {
-        parser->curToken.lineNo++;
-        getNextChar(parser);
-        break;
+        if (parser->curChar == '\n') {  
+            parser->curToken.lineNo++;
+            getNextChar(parser);
+            break;
+        }
     }
     getNextChar(parser);
 }

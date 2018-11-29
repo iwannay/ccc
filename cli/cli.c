@@ -21,14 +21,15 @@ static void runFile(const char* path) {
     initParser(vm, &parser, path, sourceCode);
 
     #include "token.list"
-    while (parser.curToken.type != TOKEN_EOF) {
+    while (parser.curToken.type != TOKEN_EOF) {    
         getNextToken(&parser);
+        // printf("--%d---%s-----%c\n",parser.curToken.type, tokenArray[parser.curToken.type], parser.curChar);
         printf("%dL: %s [", parser.curToken.lineNo, tokenArray[parser.curToken.type]);
         uint32_t idx = 0;
         while (idx < parser.curToken.length) {
             printf("%c", *(parser.curToken.start+idx++));
         }
-        printf(")\n");
+        printf("]\n");
     }
 }
 

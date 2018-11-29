@@ -48,6 +48,8 @@ char* tokenArray[] = {
     "LOGIC_NOT",
     "EQUAL",
     "NOT_EQUAL",
+    "GREATE",
+    "GREATE_EQUAL",
     "LESS",
     "LESS_EQUAL",
     "QUESTION",
