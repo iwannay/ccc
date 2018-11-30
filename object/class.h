@@ -48,5 +48,38 @@ typedef enum {
 #define VALUE_IS_OBJCLASS(value) (VALUE_IS_CERTAIN_OBJ(value, OT_CLASS))
 #define VALUE_IS_0(value) (VALUE_IS_NUM(value) && (value).num == 0)
 
+// 原生方法指针
+// TODO 
+typedef bool (*Primitive) (VM* vm, Value* args);
+
+typedef struct {
+    MethodType type; // union 中的值由type的值决定
+    Union {
+        // 指向脚本方法所关联的c实现
+        Primitive PrimFn;
+        // 指向脚本代码比那以后的ObjClosure或ObjFn
+        ObjClosure* obj;
+    };
+} Method;
+
+DECLARE_BUFFER_TYPE(Method)
+
+// 类是对象的模板
+struct class {
+    ObjHeader objHeader; 
+    struct class* superClass // 父类
+    uint32_t fieldNum; // 本体的字段数，包括基类的字段数
+    MethodBuffer methods; // 本体的方法
+    ObjString* name; // 类名
+}; // 对象类
+
+typedef union {
+    uint64_t bits64;
+    uint32_t bits32[2];
+    double num;
+} Bits64;
+
+#define CAPACITY_GROW_FACTOR 4
+#define MIN_CAPACITY 64
 
 #endif
