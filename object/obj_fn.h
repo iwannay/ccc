@@ -6,7 +6,7 @@
 
 
 typedef struct {
-    char* fnName // 函数名
+    char* fnName; // 函数名
     IntBuffer lineNo; // 行号
 } FnDebug; // 在函数中的调试结构
 
@@ -14,17 +14,17 @@ typedef struct {
     ObjHeader objHeader;
     ByteBuffer instrStream; // 函数编译后的指令流
     ValueBuffer constants; // 函数中的常量表
-    ObjModule* module // 本函数所属的模块
+    ObjModule* module; // 本函数所属的模块
 
     // 本函数最多需要的栈空间，是使用空间的峰值
     uint32_t maxStaticSlotUsedNum;
     uint32_t upvalueNum; // 本函数所涵盖的upvalue数量
     uint8_t argNum; // 函数期望的参数个数
-}
 
 #if DEBUG
     FnDebug* debug;
 #endif
+
 } ObjFn; // 函数对象
 
 typedef struct upvalue {
@@ -43,7 +43,7 @@ typedef struct {
     ObjHeader objHeader;
     ObjFn* fn; // 闭包中所要引用的函数
     ObjUpvalue* upvalues[0]; // 用于存储此函数的closed upvalue
-} ObjClosure // 闭包对象
+} ObjClosure; // 闭包对象
 
 typedef struct {
     uint8_t* ip; // 程序计数器 指向下一个被执行的指令
@@ -57,5 +57,9 @@ typedef struct {
 } Frame; // 调用框架
 
 #define INITIAL_FRAME_NUM 4
+
+ObjUpvalue* newObjUpvalue(VM* vm, Value* localVarPtr);
+Objclosure* newObjClosure(VM* vm, ObjFn* objFn);
+ObjFn* newObjFn(VM* vm, ObjModule* ojModule, uint32_t maxStacksSlotUsedNum);
 
 #endif
