@@ -85,6 +85,7 @@ typedef struct {
     const char* start;
     uint32_t length;
     uint32_t lineNo;
+    Value vlaue;
 } Token;
 
 struct parser {
@@ -94,6 +95,7 @@ struct parser {
     char curChar;
     Token curToken;
     Token preToken;
+    ObjModule* curModule;
 
     // 处于内嵌表达式中期望的右括号数量，用于跟踪小括号对的嵌套
     int interpolationExpectRightParenNum;

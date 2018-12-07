@@ -59,7 +59,7 @@ typedef struct {
 #define INITIAL_FRAME_NUM 4
 
 ObjUpvalue* newObjUpvalue(VM* vm, Value* localVarPtr);
-Objclosure* newObjClosure(VM* vm, ObjFn* objFn);
-ObjFn* newObjFn(VM* vm, ObjModule* ojModule, uint32_t maxStacksSlotUsedNum);
+ObjClosure* newObjClosure(VM* vm, ObjFn* objFn);
+ObjFn* newObjFn(VM* vm, ObjModule* objModule, uint32_t maxStacksSlotUsedNum);
 
 #endif
