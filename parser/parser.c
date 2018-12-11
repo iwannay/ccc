@@ -7,6 +7,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "obj_string.h"
+#include "class.h"
 
 struct keywordToken {
     char* keyword;
@@ -132,7 +133,7 @@ static void parseNum(Parser* parser) {
         parser->curToken.value = NUM_TO_VALUE(strtol(parser->curToken.start, NULL, 16));
     } else if (parser->curChar == '0' && isdigit(lookAheadChar(parser))) { // 八进制
         parseOctNum(parser);
-        parser->curToken.value = NUM_TO_VALUE(strcoll(parser->curToken.start, NULL, 8));
+        parser->curToken.value = NUM_TO_VALUE(strtol(parser->curToken.start, NULL, 8));
     } else {
         parseDecNum(parser);
         parser->curToken.value = NUM_TO_VALUE(strtod(parser->curToken.start, NULL));
@@ -248,7 +249,7 @@ static void parseString(Parser* parser) {
 
     // 用识别道德字符串新建字符串对象存储到curToken的value中
     ObjString* objString = newObjString(parser->vm, (const char*)str.datas, str.count);
-    parser->curtoken.value = OBJ_TO_VALUE(objString);
+    parser->curToken.value = OBJ_TO_VALUE(objString);
     ByteBufferClear(parser->vm, &str);
 }
 

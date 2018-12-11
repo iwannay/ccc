@@ -26,7 +26,7 @@ ObjFn* newObjFn(VM* vm, ObjModule* objModule, uint32_t slotNum) {
 
 // 以函数fn创建一个闭包
 ObjClosure* newObjClosure(VM* vm, ObjFn* objFn) {
-    Objclosure* objClosure = ALLOCATE_EXTRA(vm, ObjClosure, sizeof(ObjClosure*) * objFn->upvalueNum);
+    ObjClosure* objClosure = ALLOCATE_EXTRA(vm, ObjClosure, sizeof(ObjClosure*) * objFn->upvalueNum);
     initObjHeader(vm, &objClosure->objHeader, OT_CLOSURE, vm->fnClass);
     objClosure->fn = objFn;
 

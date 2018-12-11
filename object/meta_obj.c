@@ -14,9 +14,9 @@ ObjModule* newObjModule(VM* vm, const char* modName) {
     initObjHeader(vm, &objModule->objHeader, OT_MODULE, NULL);
 
     StringBufferInit(&objModule->moduleVarName);
-    ValueBufferInit(&objMOdule->moduleVarValue);
+    ValueBufferInit(&objModule->moduleVarValue);
 
-    objModule->name = NULL // 核心模块名为NULL
+    objModule->name = NULL; // 核心模块名为NULL
     if (modName != NULL) {
         objModule->name = newObjString(vm, modName, strlen(modName));
     }
@@ -26,11 +26,10 @@ ObjModule* newObjModule(VM* vm, const char* modName) {
 // 创建类class的实例
 ObjInstance* newObjInstance(VM* vm, Class* class) {
     // 参数class主要作用是提供类中fields的数目
-    ObjInstance* objInstance = ALLOCATE_EXTRA(VM,
-        ObjInstance, sizeof(Value) * class->fieldNum);
+    ObjInstance* objInstance = ALLOCATE_EXTRA(vm, ObjInstance, sizeof(Value) * class->fieldNum);
 
     // 在此关联对象的类和参数class
-    initObjHeader(vm, &ObjInstance->objHeader, OT_INSTANCE, class);
+    initObjHeader(vm, &objInstance->objHeader, OT_INSTANCE, class);
 
     // 初始化field为null
     uint32_t idx = 0;

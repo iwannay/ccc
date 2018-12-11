@@ -54,7 +54,7 @@ typedef bool (*Primitive) (VM* vm, Value* args);
 
 typedef struct {
     MethodType type; // union 中的值由type的值决定
-    Union {
+    union {
         // 指向脚本方法所关联的c实现
         Primitive PrimFn;
         // 指向脚本代码比那以后的ObjClosure或ObjFn
@@ -67,7 +67,7 @@ DECLARE_BUFFER_TYPE(Method)
 // 类是对象的模板
 struct class {
     ObjHeader objHeader; 
-    struct class* superClass // 父类
+    struct class* superClass; // 父类
     uint32_t fieldNum; // 本体的字段数，包括基类的字段数
     MethodBuffer methods; // 本体的方法
     ObjString* name; // 类名

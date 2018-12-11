@@ -17,7 +17,7 @@ typedef struct {
     ObjModule* module; // 本函数所属的模块
 
     // 本函数最多需要的栈空间，是使用空间的峰值
-    uint32_t maxStaticSlotUsedNum;
+    uint32_t maxStackSlotUsedNum;
     uint32_t upvalueNum; // 本函数所涵盖的upvalue数量
     uint8_t argNum; // 函数期望的参数个数
 
