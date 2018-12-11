@@ -18,7 +18,7 @@ static void runFile(const char* path) {
     const char* sourceCode = readFile(path);
 
     struct parser parser;
-    initParser(vm, &parser, path, sourceCode);
+    initParser(vm, &parser, path, sourceCode, NULL); // 临时用NULL
 
     #include "token.list"
     while (parser.curToken.type != TOKEN_EOF) {    
