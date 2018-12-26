@@ -19,6 +19,31 @@ bool valueIsEqual(Value a, Value b) {
         return a.num == b.num;
     }
 
-    
+    // 相同对象返回true
+    if (a.objHeader == b.objHeader) {
+        return true;
+    }
+
+    // 类型不同不比较
+    if (a.objHeader->type != b.objHeader->type) {
+        return false;
+    }
+
+    // 若对象同为字符串
+    if (a.objHeader->type == OT_STRING) {
+        ObjString* strA = VALUE_TO_OBJSTR(a);
+        ObjString* strB = VALUE_TO_OBJSTR(b);
+        return (strA->value.length == strB->value.length &&
+            memcmp(strA->value.start, strB->value.start, strA->value.length) == 0);
+    }
+
+    // 若对象同为range
+    if (a.objHeader->type == OT_RANGE)  {
+        ObjRange* rgA = VALUE_TO_OBJRANGE(a);
+        ObjRange* rgB = VALUE_TO_OBJRANGE(b);
+        return (rgA->from == rgB->from && rgA->to = rgB->to);
+    }
+
+    return false;
 
 }
