@@ -24,7 +24,7 @@ struct vm {
     uint32_t allocatedBytes; // 累计已分配的内存量
     Parser* curParser; // 当前词法分析器
     ObjHeader* allObjects; // 所有已分配的对象链表
-    SymbolTable allMethodName; // 所有类的方法名
+    SymbolTable allMethodNames; // 所有类的方法名
     ObjMap* allModules; 
     ObjThread* curThread; // 当前正在执行的线程
 };

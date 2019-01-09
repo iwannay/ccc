@@ -25,6 +25,6 @@ typedef struct objThread {
 
 void prepareFrame(objThread* objThread, ObjClosure* ObjClosure, Value* stackStart);
 ObjThread* newObjThread(VM* vm, ObjClosure* objClosure);
-void resetThread(ObjThread* objThread, objClosure* objClosure);
+void resetThread(ObjThread* objThread, ObjClosure* objClosure);
 
 #endif
