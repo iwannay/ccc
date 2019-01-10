@@ -36,7 +36,7 @@ typedef enum {
     SIGN_CONSTRUCT, // 构造函数
     SIGN_METHOD, // 普通方法
     SIGN_GETTER, // getter 方法
-    SIGN_SETTER， // setter 方法
+    SIGN_SETTER, // setter 方法
     SIGN_SUBSCRIPT, // getter 形式的下表
     SIGN_SUBSCRIPT_SETTER // setter 形式的下标
 } SignatureType; // 方法的签名
@@ -64,5 +64,9 @@ typedef struct {
     IntBuffer staticMethods; // 静态方法
     Signature* signature; // 当前正在编译的签名
 } ClassBookKeep; // 用于记录类编译时的信息
+
+typedef struct compileUnit CompileUnit;
+
+int defineModuleVar(VM* vm, ObjModule* objModule, const char* name, uint32_t length, Value value);
 
 #endif
