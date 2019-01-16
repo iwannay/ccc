@@ -56,9 +56,46 @@ VMResult executeModule(VM* vm, Value moduleName, const char* moduleCode) {
 
 // 编译核心模块
 void buildCore(VM* vm) {
+
+    // 核心模块不需要名字，模块也允许名字为空
+    ObjModule* coreModule = newObjModule(vm, NULL);
+
     // 创建核心模块，录入到vm->allModules
-    ObjModule* coreModule = newObjModule(vm, NULL); // NULL为核心模块的name
-    mapSet(vm, vm->allModules, CORE_MODULE，OBJ_TO_VALUE(coreModule));
+    mapSet(vm, vm->allModules, CORE_MODULE, OBJ_TO_VALUE(coreModule));
+
+    // 创建object类并绑定方法
+    vm->objectClass = defineClass(vm, coreModule, "object");
+    PRIM_METHOD_BIND(vm->objectClass, "!", primObjectNot);
+    PRIM_METHOD_BIND(vm->objectClass, "==(_)", primObjectEqual);
+    PRIM_METHOD_BIND(vm->objectClass, "!=(_)", primObjectNotEqual);
+    PRIM_METHOD_BIND(vm->objectClass, "is(_)", primObjectIs);
+    PRIM_METHOD_BIND(vm->objectClass, "toString", primObjectToString);
+    PRIM_METHOD_BIND(vm->objectClass, "type", primObjectType);
+
+    // 定义classOfClass类，它是所有meta类的meta类和基类
+    vm->classOfClass = defineClass(vm, coreModule, "class");
+
+    // objectClass是任何类的基类
+    bindSuperClass(vm, vm->classOfClass, vm->objectClass);
+
+    PRIM_METHOD_BIND(vm->classOfClass, "name", primClassName);
+    PRIM_METHOD_BIND(vm->classOfClass, "supertype", primClassSupertype);
+    PRIM_METHOD_BIND(vm->classOfClass, "toString", primClassToString);
+
+    // 定义object类的元信息类objectMetaclass,它无需挂载到vm
+    Class* objectMetaclass = defineClass(vm, coreModule, "objectMeta");
+
+    // classOfClass类是所有meta类的meta类和基类
+    bindSuperClass(vm, objectMetaclass, vm->classOfClass);
+
+    // 类型比较
+    PRIM_METHOD_BIND(objectMetaclass, "same(_,_)", primObjectmetaSame);
+    // 绑定各自的meta类
+    vm->objectClass->objHeader.class = objectMetaclass;
+    objectMetaclass->objHeader.class = vm->classOfClass;
+    vm->classOfClass->objHeader.class = vm->classOfClass; // 元信息类回路，meta类终点
+
+
 }
 
 // !object: object 取反，结果为false
