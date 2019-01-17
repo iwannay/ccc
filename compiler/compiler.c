@@ -66,3 +66,8 @@ int defineModuleVar(VM* vm, ObjModule* objModule, const char* name, uint32_t len
     }
     return symbolIndex;
 }
+
+// 编译模块
+ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
+    ;
+}
