@@ -4,6 +4,12 @@
 #include "header_obj.h"
 #include "meta_obj.h"
 
+#define OPCODE_SLOTS(opcode, effect) OPCODE_##opcode,
+typedef enum {
+    #include "opcode.inc"
+} OpCode;
+#undef OPCODE_SLOTS
+
 typedef enum vmResult {
     VM_RESULT_SUCCESS,
     VM_RESULT_ERROR
