@@ -3,6 +3,9 @@
 #include "common.h"
 #include "header_obj.h"
 #include "meta_obj.h"
+#include "utils.h"
+#include "obj_map.h"
+#include "obj_thread.h"
 
 #define OPCODE_SLOTS(opcode, effect) OPCODE_##opcode,
 typedef enum {

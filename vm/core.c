@@ -1,9 +1,13 @@
 #include "core.h"
 #include <sys/stat.h>
 #include "vm.h"
-#include "utils.h"
 #include "string.h"
+#include "obj_map.h"
+#include "common.h"
+#include "obj_thread.h"
 #include "compiler.h"
+#include "class.h"
+#include "utils.h"
 
 char* rootDir  = NULL; // 根目录
 
@@ -46,12 +50,7 @@ char* rootDir  = NULL; // 根目录
     Method method;\
     method.type = MT_PRIMITIVE;\
     method.primFn = func;\
-    bindMethod(vm, classPtr, (uint32_t)globalIdx, method);\
-}
-
-
-VMResult executeModule(VM* vm, Value moduleName, const char* moduleCode) {
-    return VM_RESULT_ERROR;
+    bindMethoPrimFnd(vm, classPtr, (uint32_t)globalIdx, method);\
 }
 
 // 编译核心模块
@@ -94,6 +93,8 @@ void buildCore(VM* vm) {
     vm->objectClass->objHeader.class = objectMetaclass;
     objectMetaclass->objHeader.class = vm->classOfClass;
     vm->classOfClass->objHeader.class = vm->classOfClass; // 元信息类回路，meta类终点
+   // TODO: coreModuleCode
+    executeModule(vm, CORE_MODULE, "coreModuleCode");
 }
 
 // !object: object 取反，结果为false
@@ -214,7 +215,7 @@ int getIndexFromSymbolTable(SymbolTable* table, const char* symbol, uint32_t len
 }
 
 // 往table中添加符号symbol,返回其索引
-int addSymbol(VM* vm, SymbolTable* table, const char* sumbol, uint32_t length) {
+int addSymbol(VM* vm, SymbolTable* table, const char* symbol, uint32_t length) {
     ASSERT(length != 0, "length of symbol is 0!");
     String string;
     string.str = ALLOCATE_ARRAY(vm, char, length+1);
@@ -276,7 +277,7 @@ static ObjThread* loadModule(VM* vm, Value moduleName, const char* moduleCode) {
         ASSERT(modName->value.start[modName->value.length] == '\0', "string.value.start is not terminated!");
         
         module = newObjClosure(vm, modName->value.start);
-        mapSet(vm, vm->allMOdules, moduleName, OBJ_TO_VALUE(module));
+        mapSet(vm, vm->allModules, moduleName, OBJ_TO_VALUE(module));
 
         // 继承核心模块中的变量
         ObjModule* coreModule = getModule(vm, CORE_MODULE);

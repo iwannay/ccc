@@ -1,5 +1,7 @@
 #include "obj_thread.h"
 #include "vm.h"
+#include "class.h"
+#include "utils.h"
 
 // 为运行函数准备帧栈
 void prepareFrame(ObjThread* objThread, ObjClosure* objClosure, Value* stackStart) {

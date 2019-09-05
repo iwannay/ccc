@@ -41,7 +41,7 @@ bool valueIsEqual(Value a, Value b) {
     if (a.objHeader->type == OT_RANGE)  {
         ObjRange* rgA = VALUE_TO_OBJRANGE(a);
         ObjRange* rgB = VALUE_TO_OBJRANGE(b);
-        return (rgA->from == rgB->from && rgA->to = rgB->to);
+        return (rgA->from == rgB->from && rgA->to == rgB->to);
     }
 
     return false;
@@ -55,7 +55,7 @@ Class* newRawClass(VM* vm, const char* name, uint32_t fieldNum) {
     class->name = newObjString(vm, name, strlen(name));
     class->fieldNum = fieldNum;
     class->superClass = NULL; // 默认没有基类
-    MethodBufferInit(&class->method);
+    MethodBufferInit(&class->methods);
 
     return class;
 }

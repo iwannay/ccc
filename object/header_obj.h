@@ -40,7 +40,7 @@ typedef struct {
     };
 } Value; // 通用的值结构
 
-DECLARE_BUFFER_TYPE(Value)
+DECLARE_BUFFER_TYPE(Value);
 
 void initObjHeader(VM* vm, ObjHeader* objHeader, ObjType objType, Class* class);
 

@@ -27,8 +27,10 @@ static uint32_t hashObj(ObjHeader* objHeader) {
         case OT_CLASS: // 计算class的哈希值
             return hashString(((Class*)objHeader)->name->value.start, ((Class*)objHeader)->name->value.length);
         case OT_RANGE: // 计算range对象哈希值
+        {
             ObjRange* objRange = (ObjRange*)objHeader;
             return hashNum(objRange->from) ^ hashNum(objRange->to);
+        }     
         case OT_STRING: // 对于字符串，直接返回其hashCode
             return ((ObjString*)objHeader)->hashCode;
         default:

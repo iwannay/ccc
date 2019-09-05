@@ -7,10 +7,10 @@ void* memManager(VM* vm, void* ptr, uint32_t oldSize, uint32_t newSize);
     (type*)memManager(vmPtr, NULL, 0, sizeof(type))
 
 #define ALLOCATE_EXTRA(vmPtr, mainType, extraSize) \
-    (mainType*) memManager(vmPtr, NULL, 0, sizeof(mainType) + extraSize)
+    (mainType*)memManager(vmPtr, NULL, 0, sizeof(mainType) + extraSize)
 
 #define ALLOCATE_ARRAY(vmPtr, type, count) \
-    (type*)memManager(vmPtr,NULL, 0, sizeof(type) * count)
+    (type*)memManager(vmPtr, NULL, 0, sizeof(type) * count)
 
 #define DEALLOCATE_ARRAY(vmPtr, arrayPtr, count) \
     memManager(vmPtr, arrayPtr, sizeof(arrayPtr[0]) * count, 0)

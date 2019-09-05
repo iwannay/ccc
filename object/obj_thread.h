@@ -23,7 +23,7 @@ typedef struct objThread {
     Value errorObj;
 } ObjThread; // 线程对象
 
-void prepareFrame(objThread* objThread, ObjClosure* ObjClosure, Value* stackStart);
+void prepareFrame(ObjThread* objThread, ObjClosure* ObjClosure, Value* stackStart);
 ObjThread* newObjThread(VM* vm, ObjClosure* objClosure);
 void resetThread(ObjThread* objThread, ObjClosure* objClosure);
 
