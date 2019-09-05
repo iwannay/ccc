@@ -37,7 +37,7 @@ typedef enum {
     SIGN_METHOD, // 普通方法
     SIGN_GETTER, // getter 方法
     SIGN_SETTER, // setter 方法
-    SIGN_SUBSCRIPT, // getter 形式的下表
+    SIGN_SUBSCRIPT, // getter 形式的下标
     SIGN_SUBSCRIPT_SETTER // setter 形式的下标
 } SignatureType; // 方法的签名
 

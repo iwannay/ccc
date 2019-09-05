@@ -234,6 +234,14 @@ static Class* defineClass(VM* vm, ObjModule* objModule, const char* name) {
     return class;
 }
 
+int ensureSymbolExist(VM* vm, SymbolTable* table, const char* symbol, uint32_t length) {
+    int symbolIndex = getIndexFromSymbolTable(table, symbol, length);
+    if (symbolIndex == -1) {
+        return addSymbol(vm, table, symbol, length);
+    }
+    return symbolIndex;
+}
+
 // 使class->methods[index]=method
 void bindMethod(VM* vm, Class* class, uint32_t index, Method method) {
     if (index >= class->methods.count) {
