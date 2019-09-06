@@ -38,6 +38,19 @@ struct compileUnit {
     Parser* curParser;
 }; // 编译单元
 
+typedef enum {
+    VAR_SCOPE_INVALID,
+    VAR_SCOPE_LOCAL, // 局部变量
+    VAR_SCOPE_UPVALUE, // upvalue
+    VAR_SCOPE_MODULE // 模块变量
+} VarScopeType; // 变量作用域
+
+typedef struct {
+    VarScopeType scopeType; // 变量的作用域
+    // 更具scopeType的值,index可能指向局部变量,upvalue,模块变量
+    int index;
+} Variable;
+
 // 把opcode定义到数组opCodeSlotsUsed中
 #define OPCODE_SLOTS(opCode, effect) effect,
 static const int opCodeSlotsUsed[] = {
@@ -95,6 +108,8 @@ static uint32_t addConstant(CompileUnit* cu, Value constant) {
     ValueBufferAdd(cu->curParser->vm, &cu->fn->constants, constant);
     return cu->fn->constants.count - 1;
 }
+
+
 
 // 把Signature 转换为字符串,返回字符串长度
 static uint32_t sign2String(Signature* sign, char* buf) {
@@ -194,7 +209,44 @@ static void expression(CompileUnit* cu, BindPower rbp) {
 static void emitCallBySignature(CompileUnit* cu, Signature* sign, OpCode opCode) {
     char signBuffer[MAX_SIGN_LEN];
     uint32_t length = sign2String(sign, signBuffer);
-    
+
+    // 确保签名录入到vm->allMethodNames中
+    int symbolIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signBuffer, length);
+    writeOpCodeShortOperand(cu, opCode+sign->argNum, symbolIndex);
+
+    // 保留基类的slot
+    if (opCode == OPCODE_SUPER0) {
+        writeShortOperand(cu, addConstant(cu, VT_TO_VALUE(VT_NULL)));
+    }
+}
+
+// 生成方法调用的指令,仅限callx指令
+static void emitCall(CompileUnit* cu, int numArgs, const char* name, int length) {
+    int symbolIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, name, length);
+    writeOpCodeShortOperand(cu, OPCODE_CALL0+numArgs, symbolIndex);
+}
+
+// 中缀运算符.led方法
+static void infixOperator(CompileUnit* cu, bool canAssign UNUSED) {
+    SymbolBindRule* rule = &Rules[cu->curParser->preToken.type];
+    // 左右操作数绑定权值一样
+    BindPower rbp = rule->lbp;
+    expression(cu, rbp); // 解析右操作数
+
+    // 生成一个参数的签名
+    Signature sign = {SIGN_METHOD, rule->id, strlen(rule->id), 1};
+    emitCallBySignature(cu, &sign, OPCODE_CALL0);
+}
+
+// 前缀运算符.nud方法,如-, !等
+static void unaryOperator(CompileUnit* cu, bool canAssign UNUSED) {
+    SymbolBindRule* rule = &Rules[cu->curParser->preToken.type];
+    // BP_UNARY 作为rbp去调用express解析右操作数
+    expression(cu, BP_UNARY);
+    // 生成调用前缀运算符的指令
+    // 0 个参数,前缀运算符都是1个字符,长度是1
+    emitCall(cu, 0, rule->id, 1);
+
 }
 
 // 生成加载常量的指令
@@ -298,8 +350,8 @@ static int writeByteOperand(CompileUnit* cu, int operand) {
 }
 
 // 按大端写入两字节的操作数 
-inline static void writeShortOperand(CompileUnit* cu, OpCode opCode, int operand) {
-    writeByte(cu, (opCode >> 8) & 0xff); // 低地址写高位
+inline static void writeShortOperand(CompileUnit* cu, int operand) {
+    writeByte(cu, (operand >> 8) & 0xff); // 低地址写高位
     writeByte(cu, operand&0xff);
 }
 
@@ -313,6 +365,86 @@ static int writeOpCodeByteOperand(CompileUnit* cu, OpCode opCode, int operand) {
 static void writeOpCodeShortOperand(CompileUnit* cu, OpCode opCode, int operand) {
     writeOpCode(cu, opCode);
     writeShortOperand(cu, operand);
+}
+
+// 为单运算符生成掐名
+static void unaryMethodSignature(CompileUnit* cu UNUSED, Signature* sign UNUSED) {
+    sign->type = SIGN_GETTER;
+}
+
+// 为中缀运算符创建签名
+static void infixMethodSignature(CompileUnit* cu, Signature* sign) {
+    // 在类中的运算符都是方法,类型为SIGN_METHOD
+    sign->type = SIGN_METHOD;
+    // 中缀运算符只有一个参数,故初始为1
+    sign->argNum = 1;
+    consumeCurToken(cu->curParser, TOKEN_LEFT_BRACE, "expect '(' after infix operator!");
+    consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
+    declareLocalVar(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter!");
+}
+
+// 为既做单运算符又做中缀运算符的符号方法创建签名
+static void mixMethodSignature(CompileUnit* cu, Signature* sign) {
+    // 单运算符
+    sign->type = SIGN_GETTER;
+    // 若后面有'('说明为中缀运算符
+    if (matchToken(cu->curParser, TOKEN_LEFT_BRACE)) {
+        sign->type = SIGN_METHOD;
+        consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
+        declareLocalVar(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+        consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter!");
+    }
+}
+
+// 添加局部变量到cu
+static uint32_t addLocalVar(CompileUnit* cu, const char* name, uint32_t length) {
+    LocalVar* var = &(cu->localVars[cu->localVarNum]);
+    var->name = name;
+    var->length = length;
+    var->scopeDepth = cu->scopeDepth;
+    var->isUpvalue = false;
+    return cu->localVarNum++;
+}
+
+// 声明局部变量
+static int declareLocalVar(CompileUnit* cu, const char* name, uint32_t length) {
+    if (cu->localVarNum > MAX_LOCAL_VAR_NUM) {
+        COMPILE_ERROR(cu->curParser, "the max length of local variable of one scope is %d",MAX_LOCAL_VAR_NUM);
+    }
+    // 判断当前作用域中变量是否已经存在
+    int idx = (int)cu->localVarNum-1;
+    while (idx <= 0) {
+        LocalVar* var = &cu->localVars[idx];
+        // 只在当前作用域检查变量,到了父级作用域就退处
+        if (var->scopeDepth < cu->scopeDepth) {
+            break;
+        }
+        if (var->length == length && memcmp(var->name, name, length) == 0) {
+            char id[MAX_ID_LEN] = {'\0'};
+            memcpy(id, name, length);
+            COMPILE_ERROR(cu->curParser, "identifier \"%s\" redefinition!", id);
+        }
+        idx--;
+    }
+
+    return addLocalVar(cu, name, length);
+}
+
+// 根据作用域声明变量
+static int declareVariable(CompileUnit* cu, const char* name, uint32_t length) {
+    if (cu->scopeDepth == -1) { // 模块作用域
+        int idx = defineModuleVar(cu->curParser->vm, cu->curParser->curModule, name, length, VT_TO_VALUE(VT_NULL));
+        if (idx == -1) { // 重复定义报错
+            char id[MAX_ID_LEN] = {'\0'};
+            memcpy(id, name, length);
+            COMPILE_ERROR(cu->curParser, "identifier \"%s\" redefinition!", id);
+        }
+        return idx;
+    }
+
+    // 局部变量
+    addLocalVar(cu, name, length);
 }
 
 // 在模块objModule中定义名为name,值为value的模块变量
@@ -346,8 +478,62 @@ int defineModuleVar(VM* vm, ObjModule* objModule, const char* name, uint32_t len
 
 
 // 编译程序
-static void ocmpileProgram(CompileUnit* cu) {
+static void compileProgram(CompileUnit* cu) {
     ;
+}
+
+// 声明模块变量,与defineModuleVar的区别是不做重定义检查,默认为声明
+static int declareModuleVar(VM* vm, ObjModule* objModule, const char* name, uint32_t length, Value value) {
+    ValueBufferAdd(vm, &objModule->moduleVarValue, value);
+    return addSymbol(vm, &objModule->moduleVarName, name, length);
+}
+
+// 返回包含cu->enclosingClassBK 的最近的CompileUnit
+static CompileUnit* getEnclosingClassBKUnit(CompileUnit* cu) {
+    while (cu != NULL) {
+        if (cu->enclosingClassBK != NULL) {
+            return cu;
+        }
+        cu = cu->enclosingUnit;
+    }
+    return NULL;
+}
+
+// 返回包含cu的最近的ClassBookKeep
+static ClassBookKeep* GetEnclosingClassBK(CompileUnit* cu) {
+    CompileUnit* cu2 = getEnclosingClassBKUnit(cu);
+    if (cu2 != NULL) {
+        return cu2->enclosingClassBK;
+    }
+    return NULL;
+}
+
+// 为实参列表中的各个实参生成加载实参的指令
+static void processArgList(CompileUnit* cu, Signature* sign) {
+    // 由主调放保证参数不为空
+    ASSERT(cu->curParser->curToken.type != TOKEN_RIGHT_PAREN && 
+        cu->curParser->curToken.type != TOKEN_RIGHT_BRACKET, "empty argument list!");
+
+    do {
+        if (++sign->argNum > MAX_ARG_NUM) {
+            COMPILE_ERROR(cu->curParser, "the max number of argment is %d!", MAX_ARG_NUM);
+        }
+        expression(cu, BP_LOWEST);
+    } while(matchToken(cu->curParser, TOKEN_COMMA));
+}
+
+// 声明行参列表中的各个参数
+static void processParaList(CompileUnit* cu, Signature* sign) {
+     ASSERT(cu->curParser->curToken.type != TOKEN_RIGHT_PAREN && 
+        cu->curParser->curToken.type != TOKEN_RIGHT_BRACKET, "empty argument list!");
+    do {
+        if (++sign->argNum > MAX_ARG_NUM) {
+            COMPILE_ERROR(cu->curParser, "the max number of params is %d!", MAX_ARG_NUM);
+        }
+        consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
+        declareVariable(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+        
+    } while(matchToken(cu->curParser, TOKEN_COMMA));
 }
 
 // 编译模块
