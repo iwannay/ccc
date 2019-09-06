@@ -42,8 +42,8 @@ struct keywordToken keywordsToken[] = {
 static TokenType idOrKeyword(const char* start, uint32_t length) {
     uint32_t idx = 0;
     while (keywordsToken[idx].keyword != NULL) {
-        if (keywordsToken[idx].length == length && \
-        memcmp(keywordsToken[idx].keyword, start, length) == 0) {
+        if (keywordsToken[idx].length == length && 
+            memcmp(keywordsToken[idx].keyword, start, length) == 0) {
             return keywordsToken[idx].token;
         }
         idx++;
