@@ -1,6 +1,7 @@
 #include "compiler.h"
 #include "parser.h"
 #include "core.h"
+#include "utils.h"
 
 #if DEBUG
     #include "debug.h"
@@ -281,12 +282,6 @@ static void literal(CompileUnit* cu, bool canAssign UNUSED) {
 
 // 占位
 #define UNUSED_RULE {NULL, BP_NONE, NULL, NULL, NULL}
-
-SymbolBindRule Rules[] = {
-    UNUSED_RULE, // 无效的token
-    PREFIX_SYMBOL(literal), // 数值token
-    PREFIX_SYMBOL(literal), // 字符串token
-};
 
 static void initCompileUnit(Parser* parser, CompileUnit* cu, CompileUnit* enclosingUnit, bool isMethod) {
     parser->curlCompileUnit = cu;
@@ -840,6 +835,223 @@ static void idMethodSignature(CompileUnit* cu, Signature* sign) {
     consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter list");
 }
 
+// 判断局部比那量(以小写字母开头的为局部变量)
+static bool isLocalName(const char* name) {
+    return (name[0] >= 'a' && name[0] <= 'z');
+}
+
+// 标识符的nud方法(变量名或方法名)
+static void id(CompileUnit* cu, bool canAssign) {
+    // 备份变量名
+    Token name = cu->curParser->preToken;
+    ClassBookKeep* classBK = GetEnclosingClassBK(cu);
+    // 标识符可以是任意符号
+    // 处理顺序:函数调用->局部调用和upvalue->实例域->静态域->类getter方法调用->模块变量
+
+    // 处理函数调用
+    if (cu->enclosingUnit == NULL && matchToken(cu->curParser, TOKEN_LEFT_PAREN)) {
+        char id[MAX_ID_LEN] = {'\0'};
+        // 函数名加上Fn前缀,作为模块变量名
+        memmove(id, "FN ", 3);
+        memmove(id+3, name.start, name.length);
+        Variable var;
+        var.scopeType = VAR_SCOPE_MODULE;
+        var.index = getIndexFromSymbolTable(&cu->curParser->curModule->moduleVarName, id, strlen(id));
+        if (var.index == -1) {
+            memmove(id, name.start, name.length);
+            id[name.length] = '\0';
+            COMPILE_ERROR(cu->curParser, "Undefined function: '%s!'", id);
+        }
+        // 1.把模块变量即函数闭包加载到栈
+        emitLoadVariable(cu, var);
+        Signature sign;
+        // 函数调用和method类似(method有可选的块参数)
+        sign.type = SIGN_METHOD;
+        // 把函数调用编译成"闭包.call",故name为call
+        sign.name = "call";
+        sign.length = 4;
+        sign.argNum = 0;
+        if (matchToken(cu->curParser, TOKEN_RIGHT_PAREN)) {
+            processArgList(cu, &sign);
+            consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after argument list!");
+        }
+        emitCallBySignature(cu, &sign, OPCODE_CALL0);
+    } else { // 按照变量处理
+        // 按照局部变量和upvalue处理
+        Variable var = getVarFromLocalOrUpvalue(cu, name.start, name.length);
+        if (var.index != -1) {
+            emitLoadOrStoreVariable(cu, canAssign, var);
+            return;
+        }
+        // 按照实例域来处理
+        if (classBK != NULL) {
+            int fieldIdx = getIndexFromSymbolTable(&classBK->fields,name.start, name.length);
+            if (fieldIdx != -1) {
+                bool isRead = true;
+                if (canAssign && matchToken(cu->curParser, TOKEN_ASSIGN)) {
+                    isRead = false;
+                    expression(cu, BP_LOWEST);
+                }
+                // 如果正在编译类方法,则直接在该实例对象中加载field
+                if (cu->enclosingUnit != NULL) {
+                    writeOpCodeByteOperand(cu, isRead?OPCODE_LOAD_THIS_FIELD:OPCODE_STORE_THIS_FIELD, fieldIdx);
+                } else {
+                    emitLoadThis(cu);
+                    writeOpCodeByteOperand(cu, isRead, OPCODE_LOAD_FIELD, fieldIdx);
+                }
+                return;
+            }
+        }
+
+        // 按照静态域查找
+        if (classBK != NULL) {
+            char* staticFieldId = ALLOCATE_ARRAY(cu->curParser->vm, char, MAX_ID_LEN);
+            memset(staticFieldId, 0, MAX_ID_LEN);
+            uint32_t staticFieldLen;
+            char* clsName = classBK->name->value.start;
+            uint32_t clsLen = classBK->name->value.length;
+            // 个类中静态域的名称以"Cls类名 静态域名"来命名
+            memmove(staticFieldId, "Cls", 3);
+            memmove(staticFieldId+3,clsName, clsLen);
+            memmove(staticFieldId+3+clsLen, " ", 1);
+            const char* tkName = name.start;
+            uint32_t tkLen = name.length;
+            memmove(staticFieldId+4+clsLen, tkName, tkLen);
+            staticFieldLen = strlen(staticFieldId);
+            var = getVarFromLocalOrUpvalue(cu, staticFieldId, staticFieldLen);
+            DEALLOCATE_ARRAY(cu->curParser->vm, staticFieldId, MAX_ID_LEN);
+            if (var.index != -1) {
+                emitLoadOrStoreVariable(cu, canAssign, var);
+                return;
+            }
+        }
+        // 同类中的其他方法,方法规定以小写字符开头
+        if (classBK != NULL && isLocalName(name.start)) {
+            emitLoadThis(cu);   // 确保args[0]是this对象
+            // 因为类可能未编译完,故留到运行时检查
+            emitMethodCall(cu, name.start, name.length, OPCODE_CALL0, canAssign);
+            return;
+        }
+
+        // 按照模块变量处理
+        var.scopeType = VAR_SCOPE_MODULE;
+        var.index = getIndexFromSymbolTable(&cu->curParser->curModule->moduleVarName, name.start, name.length);
+        if (var.index == -1) {
+            // 模块变量属于模块作用域,若当前引用处未定义该模块变量
+            // 可能后面有定义,所以先声明,待模块统计完后再检查
+            // 用关键字func定义的函数是以Fn后接函数名作为模块变量
+            // 加上Fn前缀按照函数名重新查找
+            char fnName[MAX_SIGN_LEN+4] = {'\0'};
+            memmove(fnName, "Fn ", 3);
+            memmove(fnName+3, name.start, name.length);
+            var.index = getIndexFromSymbolTable(&cu->curParser->curModule->moduleVarName, fnName, strlen(fnName));
+
+            // 若不是函数名,可能是该模块变量定义在引用处的后面
+            // 先将行号作为变量值去声明
+            if (var.index == -1) {
+                var.index = declareModuleVar(cu->curParser->vm, cu->curParser->curModule, name.start,name.length,NUM_TO_VALUE(cu->curParser->curToken.lineNo));
+            }
+        }
+        emitLoadOrStoreVariable(cu, canAssign, var);
+    }
+}
+
+// 生成加载类的文件
+static void emitLoadModuleVar(CompileUnit* cu, const char* name) {
+    int index = getIndexFromSymbolTable(&cu->curParser->curModule->moduleVarName, name, strlen(name));
+    ASSERT(index != -1, "symbol should have been defined");
+    writeOpCodeShortOperand(cu, OPCODE_LOAD_MODULE_VAR, index);
+}
+
+// 内嵌表达式.nud()
+static void stringInterpolation(CompileUnit* cu, bool canAssign UNUSED) {
+    // a % (b+c) d %(e) f 会被编译为["a ", b+c, " d ", e, "f "].join()
+    // 其中a和d是token_interpolation, b,c,e都是token_id, f是token_string
+    // 创建一个list实例拆分字符串,将拆分出的个部分作为元素添加到list
+    emitLoadModuleVar(cu, "List");
+    emitCall(cu, 0, "new()", 5);
+
+    // 每次处理字符串中的一个内嵌表达式,包括两部分,以a%(b+c)为例:
+    // 1. 加载TOKEN_INTERPOLATION对应的字符串,如a,将其加载到list
+    // 2. 解析内嵌表达式,如b+c,将结果添加到list
+    do {
+        // 1. 处理TOKEN_INTERPOLATION中对应的字符串,如a
+        literal(cu, false);
+        // 将字符串添加到list
+        emitCall(cu, 1, "addCore_(_)", 11); // 以_结尾的方法名是内部使用
+        // 2. 解析b+c
+        expression(cu, BP_LOWEST);
+        // 将结果添加到list
+        emitCall(cu, 1, "addCore_(_)", 11);
+
+    } while(matchToken(cu->curParser, TOKEN_INTERPOLATION)); // 处理下一个内嵌表达式,如a%(b+c) d %(e) f中的d %(e)
+
+    // 读取最后的字符串f
+    consumeCurToken(cu->curParser, TOKEN_STRING, "expect string at the end of interpolatation");
+    // 加载最后的字符串
+    literal(cu, false);
+    // 将字符串添加到list
+    emitCall(cu, 1, "addCore_(_)", 11);
+    // 最后将以上list中的元素join为一个字符串
+    emitCall(cu, 0, "join()", 6);
+}
+
+// 编译bool, true和false的nud方法
+static void boolean(CompileUnit* cu, bool canAssign UNUSED) {
+    OpCode opCode = cu->curParser->preToken.type == TOKEN_TRUE ? OPCODE_PUSH_TRUE : OPCODE_PUSH_FALSE;
+    writeOpCode(cu, opCode);
+}
+
+// "null".nud()
+static void null(CompileUnit* cu, bool canAssign UNUSED) {
+    writeOpCode(cu, OPCODE_PUSH_NULL);
+}
+// "this".nud()
+static void this(CompileUnit* cu, bool canAssign UNUSED) {
+    if (GetEnclosingClassBK(cu) == NULL) {
+        COMPILE_ERROR(cu->curParser, "this must inside a class method!");
+    }
+    emitLoadThis(cu);
+}
+
+// "super".nud()
+static void super(CompileUnit* cu, bool canAssign) {
+    ClassBookKeep* enClosingClassBK = GetEnclosingClassBK(cu);
+    if (enClosingClassBK == NULL) {
+        COMPILE_ERROR(cu->curParser, "can't invoke super outside a class method!");
+    }
+    // 加载this保证args[0]始终是this对象,对基类调用无效
+    emitLoadThis(cu);
+
+    if (matchToken(cu->curParser, TOKEN_DOT)) { // 形如super.methodName
+        consumeCurToken(cu->curParser, TOKEN_ID, "expect name after '.'!");
+        emitMethodCall(cu,cu->curParser->preToken.start, cu->curParser->preToken.length, OPCODE_SUPER0, canAssign);
+    } else { // super()
+        emitGetterMethodCall(cu, enClosingClassBK->signature, OPCODE_SUPER0);
+    }
+}
+
+
+SymbolBindRule Rules[] = {
+    UNUSED_RULE,    // 无效的token
+    PREFIX_SYMBOL(literal),     // 数值token
+    PREFIX_SYMBOL(literal),     // 字符串token
+    {NULL, BP_NONE, id, NULL, idMethodSignature},   // token id
+    PREFIX_SYMBOL(stringInterpolation),     // 内嵌表达式token
+    UNUSED_RULE,    // TOKEN_VAR
+    UNUSED_RULE,    // TOKEN_FUN
+    UNUSED_RULE,    // TOKEN_IF
+    UNUSED_RULE,    // TOKEN_ELSE
+    PREFIX_SYMBOL(boolean), // TOKEN_TRUE
+    PREFIX_SYMBOL(boolean), // TOKEN_FALSE
+    UNUSED_RULE,    // TOKEN_WHILE
+    UNUSED_RULE,    // TOKEN_FOR
+    UNUSED_RULE,    // TOKEN_BREAK
+    UNUSED_RULE,    // TOKEN_CONTINUE
+    UNUSED_RULE,    // TOKEN_RETURN
+    PREFIX_SYMBOL(null),    // TOKEN_NULL
+    UNUSED_RULE,    // TOKEN_CLASS
+};
 
 // 编译模块
 ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
