@@ -600,7 +600,7 @@ static void processParaList(CompileUnit* cu, Signature* sign) {
     } while(matchToken(cu->curParser, TOKEN_COMMA));
 }
 
-// 尝试编译setter
+// sign尝试编译setter
 static bool trySetter(CompileUnit* cu, Signature* sign) {
     if (!matchToken(cu->curParser, TOKEN_ASSIGN)) {
         return false;
@@ -1031,6 +1031,60 @@ static void super(CompileUnit* cu, bool canAssign) {
     }
 }
 
+// "(".nud()
+static parentheses(CompileUnit* cu, bool canAssign UNUSED) {
+    // curToken 为"("
+    expression(cu, BP_LOWEST);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after expression!");
+}
+// '['.nud() 用于处理字面量形式的列表
+static void listLiteral(CompileUnit* cu, bool canAssign UNUSED) {
+    // curToken = "["
+    emitLoadModuleVar(cu, "List");
+    emitCall(cu, 0, "new()", 5);
+    do {
+        // 支持字面量形式定义的空列表
+        if (PEEK_TOKEN(cu->curParser) == TOKEN_RIGHT_BRACKET) {
+            break;
+        }
+        expression(cu, BP_LOWEST);
+        emitCall(cu, 1, "addCore_(_)", 11);
+    } while(matchToken(cu->curParser, TOKEN_COMMA));
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_BRACKET, "expect ']' after list element!");
+
+}
+
+// '['.led() 用于索引list元素,如list[x]
+static void subscript(CompileUnit* cu, bool canAssign) {
+    if (matchToken(cu->curParser, TOKEN_RIGHT_BRACKET)) {
+        COMPILE_ERROR(cu->curParser, "need argument in the '[]'");
+    }
+    // 默认[_],getter
+    Signature sign = {SIGN_SUBSCRIPT, "", 0, 0};
+    processArgList(cu, &sign);
+    consumeCurToken(cu->curParser,TOKEN_RIGHT_BRACKET,"expect ']' after argument list!");
+    // [_]=(_) 则为setter
+    if (canAssign && matchToken(cu->curParser, TOKEN_ASSIGN)) {
+        sign.type = SIGN_SUBSCRIPT_SETTER;
+        // = 右边的值也算一个参数,签名是[args[1]]=(args[2])
+        if (++sign.argNum > MAX_ARG_NUM) {
+            COMPILE_ERROR(cu->curParser, "the max number of argument is %d", MAX_ARG_NUM);
+        }
+        // 获取=右边的表达式
+        expression(cu, BP_LOWEST);
+    }
+    emitCallBySignature(cu, &sign, OPCODE_CALL0);
+}
+
+// 为下标操作符[编译签名
+static void subscriptMethodSignature(CompileUnit* cu, Signature* sign) {
+    sign->type = SIGN_SUBSCRIPT;
+    sign->length = 0;
+    processParaList(cu, sign);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_BRACKET, "expect ']' after index list!");
+    trySetter(cu, sign);
+}
+
 
 SymbolBindRule Rules[] = {
     UNUSED_RULE,    // 无效的token
@@ -1051,6 +1105,10 @@ SymbolBindRule Rules[] = {
     UNUSED_RULE,    // TOKEN_RETURN
     PREFIX_SYMBOL(null),    // TOKEN_NULL
     UNUSED_RULE,    // TOKEN_CLASS
+    PREFIX_SYMBOL(this),    // TOKEN_THIS
+    UNUSED_RULE,    // TOKEN_STATIC
+    INFIX_OPERATOR("is", BP_IS),    // TOKEN_IS
+    PREFIX_SYMBOL(super),   // TOKEN_SUPER
 };
 
 // 编译模块
