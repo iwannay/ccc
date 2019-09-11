@@ -1085,6 +1085,35 @@ static void subscriptMethodSignature(CompileUnit* cu, Signature* sign) {
     trySetter(cu, sign);
 }
 
+// '.'.led() 方法入口,编译所有调用入口
+static void callEntry(CompileUnit* cu, bool canAssign) {
+    // curToken= TOKEN_ID
+    consumeCurToken(cu->curParser, TOKEN_ID, "expect method name after '.'!");
+    emitMethodCall(cu, cu->curParser->preToken.start, cu->curParser->preToken.length, OPCODE_CALL0, canAssign);
+}
+
+// '{'.nud map对象字面量
+static void mapLiteral(CompileUnit* cu, bool canAssign UNUSED) {
+    // curToken = key
+    // 1.加载类
+    emitLoadModuleVar(cu, "Map");
+    // 2.加载调用方法,方法从类中获取
+    emitCall(cu, 0, "new()", 5);
+    do {
+        // 允许空map
+        if (PEEK_TOKEN(cu->curParser) == TOKEN_RIGHT_BRACE) {
+            break;
+        }
+        // 读取key
+        expression(cu, BP_UNARY);
+        consumeCurToken(cu->curParser, TOKEN_COLON, "expect ':' after key!");
+        // 读取value
+        expression(cu, BP_LOWEST);
+        // 添加指令
+        emitCall(cu, 2, "addCore_(_,_)", 13);
+    } while(matchToken(cu->curParser, TOKEN_COMMA));
+}
+
 
 SymbolBindRule Rules[] = {
     UNUSED_RULE,    // 无效的token
@@ -1109,6 +1138,15 @@ SymbolBindRule Rules[] = {
     UNUSED_RULE,    // TOKEN_STATIC
     INFIX_OPERATOR("is", BP_IS),    // TOKEN_IS
     PREFIX_SYMBOL(super),   // TOKEN_SUPER
+    UNUSED_RULE,    //  TOKEN_IMPORT
+    UNUSED_RULE,    // TOKEN_COMMA
+    UNUSED_RULE,    // TOKEN_COMMA
+    PREFIX_SYMBOL(parentheses), // TOKEN_LEFT_PAREN
+    UNUSED_RULE,    // TOKEN_RIGHT_PAREN
+    {NULL, BP_CALL, listLiteral},   // TOKEN_LEFT_BRACKET
+    UNUSED_RULE,    // TOKEN_RIGHT_BRACKET
+    PREFIX_SYMBOL(mapLiteral),  // TOKEN_LEFT_BRACE
+    UNUSED_RULE,    // TOKEN_RIGHT_BRACE
 };
 
 // 编译模块
