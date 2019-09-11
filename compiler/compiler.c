@@ -329,7 +329,7 @@ static int writeByte(CompileUnit* cu, int byte) {
     return cu->fn->instrStream.count - 1;
 }
 
-// 写入操作码
+// 写入操作码并累加运行时栈
 static void writeOpCode(CompileUnit* cu, OpCode opCode) {
     writeByte(cu, opCode);
     // 累计需要的运行时空间大小
@@ -1114,6 +1114,49 @@ static void mapLiteral(CompileUnit* cu, bool canAssign UNUSED) {
     } while(matchToken(cu->curParser, TOKEN_COMMA));
 }
 
+// 占位符号作为参数设置指令
+static uint32_t emitInstrWithPlaceholder(CompileUnit* cu, OpCode opCode) {
+    writeOpCode(cu, opCode);
+    writeByte(cu, 0xff);
+    return writeByte(cu, 0xff)-1; // -1后返回高位地址,用于回填
+}
+
+// 用当前字节的码结束地址的偏移量去替换占位符oxffff
+static void patchPlaceholder(CompileUnit* cu, uint32_t absIndex) {
+    uint32_t offset = cu->fn->instrStream.count - absIndex - 2;
+    // 先回填高8位
+    cu->fn->instrStream.datas[absIndex] = (offset >> 8) | 0xff;
+    // 低8位
+    cu->fn->instrStream.datas[absIndex+1] = offset & 0xff;
+}
+
+// '||'.led()
+static void logicOr(CompileUnit* cu, bool canAssign UNUSED) {
+    // 此时栈顶为||的左操作数
+    uint32_t placeholderIndex = emitInstrWithPlaceholder(cu, OPCODE_OR);
+    // 生成右操作数的指令
+    expression(cu, BP_LOGIC_OR);
+    patchPlaceholder(cu, placeholderIndex);
+}
+
+// '&&'.led()
+static void logicAdd(CompileUnit* cu, bool canAssign UNUSED) {
+    // 此时栈顶是&&的左操作数
+    uint32_t placeHolderIndex = emitInstrWithPlaceholder(cu, OPCODE_AND);
+    expression(cu, BP_LOGIC_AND);
+    patchPlaceholder(cu, placeHolderIndex);
+}
+// '?:'.led()
+static void condition(CompileUnit* cu, bool canAssign UNUSED) {
+    uint32_t falseBranchStart = emitInstrWithPlaceholder(cu, OPCODE_JUMP_IF_FALSE);
+    // 编译true分支
+    expression(cu, BP_LOWEST);
+    consumeCurToken(cu->curParser, TOKEN_COLON, "expect ':' after true branch!");
+    uint32_t falseBranchEnd = emitInstrWithPlaceholder(cu, OPCODE_JUMP);
+    patchPlaceholder(cu, falseBranchStart);
+    expression(cu, BP_LOWEST);
+    patchPlaceholder(cu, falseBranchEnd);
+}
 
 SymbolBindRule Rules[] = {
     UNUSED_RULE,    // 无效的token
@@ -1147,6 +1190,29 @@ SymbolBindRule Rules[] = {
     UNUSED_RULE,    // TOKEN_RIGHT_BRACKET
     PREFIX_SYMBOL(mapLiteral),  // TOKEN_LEFT_BRACE
     UNUSED_RULE,    // TOKEN_RIGHT_BRACE
+    INFIX_OPERATOR("..", BP_RANGE), // TOKEN_DOT_DOT
+    INFIX_OPERATOR("+", BP_TERM),   // TOKEN_ADD
+    MIX_OPERATOR("-"),  // TOKEN_SUB
+    INFIX_OPERATOR("*", BP_FACTORE),    // TOKEN_MUL
+    INFIX_OPERATOR("/", BP_FACTORE),    // TOKEN_DIV
+    INFIX_OPERATOR("%", BP_FACTORE),    // TOKEN_MOD
+    UNUSED_RULE,    // TOKEN_ASSIGN
+    INFIX_OPERATOR("&", BP_BIT_AND),    // TOKEN_BIT_AND
+    INFIX_OPERATOR("|", BP_BIT_OR), // TOKEN_BIT_OR
+    PREFIX_OPERATOR("~"),   // TOKEN_BIT_NOT
+    INFIX_OPERATOR(">>", BP_BIT_SHIFT), // TOKEN_BIT_SHIFT_RIGHT
+    INFIX_OPERATOR("<<", BP_BIT_SHIFT), // TOKEN_BIT_SHIFT_LEFT
+    INFIX_SYMBOL(BP_LOGIC_AND, logicAdd),   // TOKEN_LOGIC_AND
+    INFIX_SYMBOL(BP_LOGIC_OR, logicOr), // TOKEN_LOGIC_OR
+    PREFIX_OPERATOR("!"),   // TOKEN_LOGIC_NOT
+    INFIX_OPERATOR("==",BP_EQUAL),  // TOKEN_EQUAL
+    INFIX_OPERATOR("!=", BP_EQUAL), // TOKEN_NOT_EQUAL
+    INFIX_OPERATOR(">", BP_CMP),    // TOKEN_GREATER
+    INFIX_OPERATOR(">=", BP_CMP),   // TOKEN_GREATER_EQUAL
+    INFIX_OPERATOR("<", BP_CMP),    // TOKEN_LESS
+    INFIX_OPERATOR("<=", BP_CMP),   // TOKEN_LESS_EQUAL
+    INFIX_SYMBOL(BP_ASSIGN, condition), // TOKEN_QUESTION
+    UNUSED_RULE, // TOKEN_EOF
 };
 
 // 编译模块
