@@ -402,6 +402,24 @@ static uint32_t addLocalVar(CompileUnit* cu, const char* name, uint32_t length) 
     return cu->localVarNum++;
 }
 
+// 丢掉作用域scopeDepth之内的局部局部变量
+static uint32_t discardLocalVar(CompileUnit* cu, int scopeDepth) {
+    ASSERT(cu->scopeDepth>-1, "upmost scope can't exit!");
+    int localIdx = cu->localVarNum - 1;
+    while (localIdx >= 0 && cu->localVars[localIdx].scopeDepth >= scopeDepth) {
+        if (cu->localVars[localIdx].isUpvalue) {
+            // 如果局部变量是内层的upvalue就关闭
+            writeByte(cu, OPCODE_CLOSE_UPVALUE);
+        } else {
+            // 否则就弹出该变量回收空间
+            writeByte(cu, OPCODE_POP);
+        }
+        localIdx--;
+    }
+    // 返回丢掉的局部变量的个数
+    return cu->localVarNum-1-localIdx;
+}
+
 // 声明局部变量
 static int declareLocalVar(CompileUnit* cu, const char* name, uint32_t length) {
     if (cu->localVarNum > MAX_LOCAL_VAR_NUM) {
@@ -1312,6 +1330,12 @@ static void compileStatement(CompileUnit* cu) {
         compileIfStatement(cu);
     } else if (matchToken(cu->curParser, TOKEN_WHILE)) {
         compileWhileStatement(cu);
+    } else if (matchToken(cu->curParser, TOKEN_RETURN)) {
+        compileReturn(cu);
+    } else if (matchToken(cu->curParser, TOKEN_BREAK)) {
+        compileBreak(cu);
+    } else if (matchToken(cu->curParser, TOKEN_CONTINUE)) {
+        compileContinue(cu);
     }
 }
 
@@ -1457,7 +1481,38 @@ uint32_t getBytesOfOperands(Byte* instrStream, Value* constants, int ip) {
     }
 }
 
+// 编译return
+inline static void compileReturn(CompileUnit* cu) {
+    if (PEEK_TOKEN(cu->curParser) == TOKEN_RIGHT_BRACE) {
+        writeOpCode(cu, OPCODE_PUSH_NULL);
+    } else {
+        expression(cu, BP_LOWEST);
+    }
+    writeOpCode(cu, OPCODE_RETURN); // 返回栈顶的值
+}
 
+// 编译break
+inline static void compileBreak(CompileUnit* cu) {
+    if (cu->curLoop == NULL) {
+        COMPILE_ERROR(cu->curParser, "break should be used inside a loop!");
+    }
+    // 退出循环体之前丢弃其局部变量
+    discardLocalVar(cu, cu->curLoop->scopeDepth+1);
+    // 由于用OPCODE_END表示break占位,此时无需记录占位符的返回地址
+    emitInstrWithPlaceholder(cu, OPCODE_END);
+}
+
+// 编译continue
+inline static void compileContinue(CompileUnit* cu) {
+    if (cu->curLoop == NULL) {
+        COMPILE_ERROR(cu->curParser, "continue should be used inside a loop!");
+    }
+    // 不能在cu->localVars中删除,否则在continue语句后面若引用前面的变量则提示找不到
+    discardLocalVar(cu, cu->curLoop->scopeDepth+1);
+    int loopBackOffset = cu->fn->instrStream.count - cu->curLoop->condStartIndex+2;
+    // 向回跳转的
+    writeOpCodeShortOperand(cu, OPCODE_LOOP, loopBackOffset);
+}
 
 // 编译模块
 ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
