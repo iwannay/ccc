@@ -1330,12 +1330,22 @@ static void compileStatement(CompileUnit* cu) {
         compileIfStatement(cu);
     } else if (matchToken(cu->curParser, TOKEN_WHILE)) {
         compileWhileStatement(cu);
+    } else if (matchToken(cu->curParser, TOKEN_FOR)) {
+        compileForStatement(cu);
     } else if (matchToken(cu->curParser, TOKEN_RETURN)) {
         compileReturn(cu);
     } else if (matchToken(cu->curParser, TOKEN_BREAK)) {
         compileBreak(cu);
     } else if (matchToken(cu->curParser, TOKEN_CONTINUE)) {
         compileContinue(cu);
+    } else if (matchToken(cu->curParser, TOKEN_LEFT_BRACE)) {
+        // 代码块有单独的作用域
+        enterScope(cu);
+        compileBlock(cu);
+        leaveScope(cu);
+    } else {
+        expression(cu, BP_LOWEST);
+        writeOpCode(cu, OPCODE_POP);
     }
 }
 
@@ -1513,6 +1523,83 @@ inline static void compileContinue(CompileUnit* cu) {
     // 向回跳转的
     writeOpCodeShortOperand(cu, OPCODE_LOOP, loopBackOffset);
 }
+
+// 进入作用域
+static void enterScope(CompileUnit* cu) {
+    // 进入内嵌作用域
+    cu->scopeDepth++;
+}
+
+// 退出作用域
+static void leaveScope(CompileUnit* cu) {
+    if (cu->enclosingUnit != NULL) {
+        uint32_t discardNum = discardLocalVar(cu, cu->scopeDepth);
+        cu->localVarNum -= discardNum;
+        cu->stackSlotNum -= discardNum;
+    }
+    // 回到上一层作用域
+    cu->scopeDepth--;
+}
+
+// 编译for循环,如 for i (sequence) {循环体}
+static void compileForStatement(CompileUnit* cu) {
+    // for i (sequence) {
+    //      System.Print(i)
+    // }
+    // 内部展开为:
+    // var seq = sequence
+    // var iter
+    // while iter = seq.iterate(iter) {
+    //      var i = seq.iteratorValue(iter)
+    //      system.Print(i)
+    // }
+    
+    // 为局部变量seq和iter创建作用域
+    enterScope(cu);
+    // 读取循环变量的名字,如for i (sequence) 中 i
+    consumeCurToken(cu->curParser, TOKEN_ID, "expect variable after for!");
+    const char* loopVarName = cu->curParser->preToken.start;
+    uint32_t loopVarLen = cu->curParser->preToken.length;
+    consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "expect '(' befor sequence!");
+
+    // 编译迭代序列
+    expression(cu, BP_LOWEST);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after sequence");
+    // 申请一个局部变量seq来存储序列对象
+    // 其值就是expression存储到栈中的结果
+    uint32_t seqSlot = addLocalVar(cu, "seq ", 4);
+    writeOpCode(cu, OPCODE_PUSH_NULL);
+    uint32_t iterSlot = addLocalVar(cu, "iter ", 5);
+    Loop loop;
+    enterLoopSetting(cu, &loop);
+    // 为调用seq.iterate(iter)做准备
+    // 1. 先压如序列对象seq
+    writeOpCodeByteOperand(cu, OPCODE_LOAD_LOCAL_VAR, seqSlot);
+    // 2. 在压入参数iter
+    writeOpCodeByteOperand(cu, OPCODE_LOAD_LOCAL_VAR, iterSlot);
+    // 3. 调用seq.iterate(iter)
+    emitCall(cu, 1, "iterate(_)", 10);
+    // seq.iterate(iter) 把结果(下一个迭代器) 存储到args[0](即栈顶),现在将其同步到iter
+    writeOpCodeByteOperand(cu, OPCODE_STORE_LOCAL_VAR, iterSlot);
+    // 如果条件失败跳出循环
+    // 写入占位符
+    loop.exitIndex = emitInstrWithPlaceholder(cu, OPCODE_JUMP_IF_FALSE);
+    
+    // 调用seq.iteratorValue(iter)以获取值
+    writeOpCodeByteOperand(cu, OPCODE_LOAD_LOCAL_VAR, seqSlot);
+    writeOpCodeByteOperand(cu, OPCODE_LOAD_LOCAL_VAR, iterSlot);
+    emitCall(cu, 1, "iteratorValue(_)", 16);
+
+    // 为循环变量i创建作用域
+    enterScope(cu);
+    addLocalVar(cu, loopVarName, loopVarLen);
+    // 编译循环体
+    compileLoopBody(cu);
+    leaveScope(cu); // 离开循环变量i的作用域
+    leaveLoopPatch(cu);
+    leaveScope(cu); // 离开变量seq和iter的作用域
+}
+
 
 // 编译模块
 ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
