@@ -268,7 +268,7 @@ static void literal(CompileUnit* cu, bool canAssign UNUSED) {
 #define PREFIX_SYMBOL(nud) {NULL, BP_NONE, nud, NULL, NULL}
 
 // 前缀运算符,如!
-#define PREFIX_OPERATOR(id) {id, BP_NONE, unaryOperator, NULL, unaryMethodsSignature}
+#define PREFIX_OPERATOR(id) {id, BP_NONE, unaryOperator, NULL, unaryMethodSignature}
 
 // 关注左操作数的符号称为中缀符号
 // 数组[,函数(,实例与方法之间的,等
@@ -362,7 +362,7 @@ static void writeOpCodeShortOperand(CompileUnit* cu, OpCode opCode, int operand)
     writeShortOperand(cu, operand);
 }
 
-// 为单运算符生成掐名
+// 为单运算符生成签名
 static void unaryMethodSignature(CompileUnit* cu UNUSED, Signature* sign UNUSED) {
     sign->type = SIGN_GETTER;
 }
@@ -405,7 +405,7 @@ static uint32_t addLocalVar(CompileUnit* cu, const char* name, uint32_t length) 
 // 声明局部变量
 static int declareLocalVar(CompileUnit* cu, const char* name, uint32_t length) {
     if (cu->localVarNum > MAX_LOCAL_VAR_NUM) {
-        COMPILE_ERROR(cu->curParser, "the max length of local variable of one scope is %d",MAX_LOCAL_VAR_NUM);
+        COMPILE_ERROR(cu->curParser, "the max length of local variable of one scope is %d", MAX_LOCAL_VAR_NUM);
     }
     // 判断当前作用域中变量是否已经存在
     int idx = (int)cu->localVarNum-1;
@@ -1214,6 +1214,250 @@ SymbolBindRule Rules[] = {
     INFIX_SYMBOL(BP_ASSIGN, condition), // TOKEN_QUESTION
     UNUSED_RULE, // TOKEN_EOF
 };
+
+// 编译变量定义
+static void compileVarDefinition(CompileUnit* cu, bool isStatic) {
+    consumeCurToken(cu->curParser, TOKEN_ID, "missing variable name!");
+    Token name = cu->curParser->preToken;
+    // 只支持一次定义单个变量
+    if (cu->curParser->curToken.type == TOKEN_COMMA) {
+        COMPILE_ERROR(cu->curParser, "var only support declaring a variable.");
+    }
+
+    // 判断是否是类中的静态域,并确保cu是模块cu.
+    // 模块cu的enclosing为null
+    if (cu->enclosingUnit == NULL && cu->enclosingClassBK != NULL) {
+        if (isStatic) { // 静态域
+            char* staticFieldId = ALLOCATE_ARRAY(cu->curParser->vm, char, MAX_ID_LEN);
+            memset(staticFieldId, 0, MAX_ID_LEN);
+            uint32_t staticFieldIdLen;
+            char* clsName = cu->enclosingClassBK->name->value.start;
+            uint32_t clsLen = cu->enclosingClassBK->name->value.length;
+            // 用前缀 'Cls '+类名+变量名,作为静态域在模块编译单元中的局部变量
+            memmove(staticFieldId, "Cls", 3);
+            memmove(staticFieldId+3, clsName, clsLen);
+            memmove(staticFieldId+3+clsLen, " ", 1);
+            const char* tkName = name.start;
+            uint32_t tkLen = name.length;
+            memmove(staticFieldId+4+clsLen, tkName, tkLen);
+            staticFieldIdLen = strlen(staticFieldId);
+            if (findLocal(cu, staticFieldId, staticFieldIdLen) == -1) {
+                int index = declareLocalVar(cu, staticFieldIdLen, staticFieldIdLen);
+                // 默认值null
+                writeOpCode(cu, OPCODE_PUSH_NULL);
+                ASSERT(cu->scopeDepth == 0, "should in class scope!");
+                defineVariable(cu, index);
+                // 静态域可初始化
+                Variable var = findVariable(cu, staticFieldId, staticFieldIdLen);
+                if (matchToken(cu->curParser, TOKEN_ASSIGN)) {
+                    expression(cu, BP_LOWEST);
+                    emitStoreVariable(cu, var);
+                }
+            } else {
+                COMPILE_ERROR(cu->curParser, "static field '%s' redefinition!", strchr(staticFieldId, ' ')+1);
+            }
+        } else { // 实例域
+            ClassBookKeep* classBK = GetEnclosingClassBK(cu);
+            int fieldIndex = getIndexFromSymbolTable(&classBK->fields, name.start, name.length);
+            if (fieldIndex == -1) {
+                fieldIndex = addSymbol(cu->curParser->vm, &classBK->fields, name.start, name.length);
+            } else {
+                if (fieldIndex > MAX_FIELD_NUM) {
+                    COMPILE_ERROR(cu->curParser, "the max number of instance field is %d!", MAX_FIELD_NUM);
+                } else {
+                    char id[MAX_ID_LEN] = {'\0'};
+                    memcpy(id, name.start, name.length);
+                    COMPILE_ERROR(cu->curParser, "instance field '%s' redefinition!", id);
+                }
+                if (matchToken(cu->curParser, TOKEN_ASSIGN)) {
+                    COMPILE_ERROR(cu->curParser, "instance field isn't allowed initalization");
+                }
+            }
+
+        }
+        return;
+    }
+
+    // 若不是类中的域定义,则按照一般定义
+    if (matchToken(cu->curParser, TOKEN_ASSIGN)) {
+        expression(cu, BP_LOWEST);
+    } else {
+        writeOpCode(cu, OPCODE_PUSH_NULL);
+    }
+    uint32_t index = declareLocalVar(cu, name.start, name.length);
+    defineVariable(cu, index);
+}
+
+static void compileIfStatement(CompileUnit* cu) {
+    consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "missing '(' after if!");
+    expression(cu, BP_LOWEST);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "missing ')' before '}' in if!");
+    uint32_t falseBranchStart = emitInstrWithPlaceholder(cu, OPCODE_JUMP_IF_FALSE);
+    // 编译then分支
+    // 代码前后的{}由compileStatement读取
+    compileStatement(cu);
+    if (matchToken(cu->curParser, TOKEN_ELSE)) {
+        uint32_t falseBranchEnd = emitInstrWithPlaceholder(cu, OPCODE_JUMP);
+        patchPlaceholder(cu, falseBranchStart);
+        compileStatement(cu);
+        patchPlaceholder(cu, falseBranchEnd);
+    } else {
+        patchPlaceholder(cu, falseBranchStart);
+    }
+}
+
+// 编译语句(与声明,定义无关的,表示动作的代码)
+static void compileStatement(CompileUnit* cu) {
+    if (matchToken(cu->curParser, TOKEN_IF)) {
+        compileIfStatement(cu);
+    } else if (matchToken(cu->curParser, TOKEN_WHILE)) {
+        compileWhileStatement(cu);
+    }
+}
+
+// 进入循环体时的相关设置
+static void enterLoopSetting(CompileUnit* cu, Loop* loop) {
+    loop->condStartIndex = cu->fn->instrStream.count - 1;
+    loop->scopeDepth = cu->scopeDepth;
+    // 在当前循环中嵌套新的循环层
+    loop->enclosingLoop = cu->curLoop;
+    cu->curLoop = loop;
+}
+
+// 离开循环体时的相关设置
+static void leaveLoopPatch(CompileUnit* cu) {
+    // 2是指两个字节的操作数
+    int loopBackOffset = cu->fn->instrStream.count - cu->curLoop->condStartIndex + 2;
+    // 生成向回跳转的CODE_LOOP指令,即使ip -= loopBackOffset
+    writeOpCodeShortOperand(cu, OPCODE_LOOP, loopBackOffset);
+    // 回填循环体的结束地址
+    patchPlaceholder(cu, cu->curLoop->exitIndex);
+    // 下面在循环体中回填break的占位符OPCODE_END
+    // 循环体开始地址
+    uint32_t idx = cu->curLoop->bodyStartIndex;
+    // 循环体结束地址
+    uint32_t loopEndIndex = cu->fn->instrStream.count;
+    while (idx < loopEndIndex) {
+        // 回填循环体中所有可能的break语句
+        if (OPCODE_END == cu->fn->instrStream.datas[idx]) {
+            cu->fn->instrStream.datas[idx] = OPCODE_JUMP;
+            // 回填OPCODE_JUMP的操作数,即跳转偏移量
+            patchPlaceholder(cu, idx+1);
+            // 使idx指向指令流中下一个操作码
+            idx += 3;
+        } else {
+            idx += 1 + getBytesOfOperands(cu->fn->instrStream.datas, cu->fn->constants.datas, idx);
+        }
+    }
+    // 退出当前循环体
+    cu->curLoop = cu->curLoop->enclosingLoop;
+}
+
+// 比那以while循环,如while(a<b){循环体}
+static void compileWhileStatement(CompileUnit* cu) {
+    Loop loop;
+    // 设置循环体起始地址
+    enterLoopSetting(cu, &loop);
+    consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "expect '(' befor condition!");
+    expression(cu, BP_LOWEST);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after condition!");
+    // 先把条件失败时跳转的目标地址占位
+    loop.exitIndex = emitInstrWithPlaceholder(cu, OPCODE_JUMP_IF_FALSE);
+    compileLoopBody(cu);
+    // 设置循环体结束等等
+    leaveLoopPatch(cu);
+}
+
+
+// 编译循环体
+uint32_t compileLoopBody(CompileUnit* cu) {
+    cu->curLoop->bodyStartIndex = cu->fn->instrStream.count;
+    compileStatement(cu);
+}
+
+// 获得ip所指向的操作码的操作数占用的字节
+uint32_t getBytesOfOperands(Byte* instrStream, Value* constants, int ip) {
+    switch ((OpCode)instrStream[ip]) {
+    case OPCODE_CONSTRUCT:
+    case OPCODE_RETURN:
+    case OPCODE_CLOSE_UPVALUE:
+    case OPCODE_PUSH_NULL:
+    case OPCODE_PUSH_FALSE:
+    case OPCODE_PUSH_TRUE:
+    case OPCODE_POP:
+        return 0;
+    case OPCODE_CREATE_CLASS:
+    case OPCODE_LOAD_THIS_FIELD:
+    case OPCODE_STORE_THIS_FIELD:
+    case OPCODE_LOAD_FIELD:
+    case OPCODE_STORE_FIELD:
+    case OPCODE_LOAD_LOCAL_VAR:
+    case OPCODE_STORE_LOCAL_VAR:
+    case OPCODE_LOAD_UPVALUE:
+    case OPCODE_STORE_UPVALUE:
+        return 1;
+    case OPCODE_CALL0:
+    case OPCODE_CALL1:
+    case OPCODE_CALL2:
+    case OPCODE_CALL3:
+    case OPCODE_CALL4:
+    case OPCODE_CALL5:
+    case OPCODE_CALL6:
+    case OPCODE_CALL7:
+    case OPCODE_CALL8:
+    case OPCODE_CALL9:
+    case OPCODE_CALL10:
+    case OPCODE_CALL11:
+    case OPCODE_CALL12:
+    case OPCODE_CALL13:
+    case OPCODE_CALL14:
+    case OPCODE_CALL15:
+    case OPCODE_CALL16:
+    case OPCODE_LOAD_CONSTANT:
+    case OPCODE_LOAD_MODULE_VAR:
+    case OPCODE_STORE_MODULE_VAR:
+    case OPCODE_LOOP:
+    case OPCODE_JUMP:
+    case OPCODE_JUMP_IF_FALSE:
+    case OPCODE_AND:
+    case OPCODE_OR:
+    case OPCODE_INSTANCE_METHOD:
+    case OPCODE_STATIC_MEHOD:
+        return 2;
+    case OPCODE_SUPER0:
+    case OPCODE_SUPER1:
+    case OPCODE_SUPER2:
+    case OPCODE_SUPER3:
+    case OPCODE_SUPER4:
+    case OPCODE_SUPER5:
+    case OPCODE_SUPER6:
+    case OPCODE_SUPER7:
+    case OPCODE_SUPER8:
+    case OPCODE_SUPER9:
+    case OPCODE_SUPER10:
+    case OPCODE_SUPER11:
+    case OPCODE_SUPER12:
+    case OPCODE_SUPER13:
+    case OPCODE_SUPER14:
+    case OPCODE_SUPER15:
+    case OPCODE_SUPER16:
+        // OPCODE_SUPERX的操作数分别由writeOpCodeShortOperand
+        // 和writeShortOperand写入的,共1个操作码和4个字节的操作数
+        return 4;
+    case OPCODE_CREATE_CLOSURE: {
+        // 获得操作码OPCODE_CLOSURE操作数,2字节
+        // 该操作数是待创建闭包的函数在常量表中的索引
+        uint32_t index = (instrStream[ip+1]<<8) | instrStream[ip+2];
+        // 2是值index在指令流中占用的字节
+        // 每个upvalue有一对参数
+        return 2 + (VALUE_TO_OBJFN(constants[index]))->upvalueNum * 2;
+    }
+    default:
+        NOT_REACHED()
+    }
+}
+
+
 
 // 编译模块
 ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
