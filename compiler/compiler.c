@@ -48,7 +48,7 @@ typedef enum {
 
 typedef struct {
     VarScopeType scopeType; // 变量的作用域
-    // 更具scopeType的值,index可能指向局部变量,upvalue,模块变量
+    // 根据scopeType的值,index可能指向局部变量,upvalue,模块变量
     int index;
 } Variable;
 
@@ -1600,6 +1600,39 @@ static void compileForStatement(CompileUnit* cu) {
     leaveScope(cu); // 离开变量seq和iter的作用域
 }
 
+// 生成模块变量存储指令
+static void emitStoreModuleVar(CompileUnit* cu, int index) {
+    // 把栈顶数据存储到moduleVarIndex
+    writeOpCodeShortOperand(cu, OPCODE_STORE_MODULE_VAR, index);
+    writeOpCode(cu, OPCODE_POP);
+}
+
+// 声明方法
+static int declareMethod(CompileUnit* cu, char* signStr, uint32_t length) {
+    // 确保方法被录入到vm->allMethodNames
+    int index = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signStr, length);
+    IntBuffer* methods = cu->enclosingClassBK->inStatic ? &cu->enclosingClassBK->staticMethods:
+    &cu->enclosingClassBK->instantMethods;
+    uint32_t idx = 0;
+    while (idx < methods->count) {
+        if (methods->datas[idx] == index) {
+            COMPILE_ERROR(cu->curParser, "repeat define method %s in class %s!", signStr, cu->enclosingClassBK->name->value.start);
+        }
+        idx++;
+    }
+    IntBufferAdd(cu->curParser->vm, methods, index);
+    return index;
+}
+
+// 将方法methodIndex值代的方法装入classVar指代的class.methods中
+static void defineMethod(CompileUnit* cu, Variable classVar, bool isStatic, int methodIndex) {
+    // 1. 待绑定的方法已经在栈顶
+    // 2. 将方法所属的类加载到栈顶
+    emitLoadVariable(cu, classVar);
+    // 3. 在运行时绑定
+    OpCode opCode = isStatic ? OPCODE_STATIC_MEHOD : OPCODE_INSTANCE_METHOD;
+    writeOpCodeShortOperand(cu, opCode, methodIndex);
+}
 
 // 编译模块
 ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
