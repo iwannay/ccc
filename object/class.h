@@ -66,7 +66,7 @@ typedef struct {
     };
 } Method;
 
-DECLARE_BUFFER_TYPE(Method)
+DECLARE_BUFFER_TYPE(Method);
 
 // 类是对象的模板
 struct class {
