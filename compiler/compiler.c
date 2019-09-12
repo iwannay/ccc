@@ -560,7 +560,7 @@ static Variable getVarFromLocalOrUpvalue(CompileUnit* cu, const char* name, uint
 }
 
 // 编译程序
-static void compileProgram(CompileUnit* cu) {
+static void lcompileProgram(CompileUnit* cu) {
     ;
 }
 
@@ -1711,6 +1711,99 @@ static void compileClassBody(CompileUnit* cu, Variable classVar) {
     } else { // 类的方法
         compileMethod(cu, classVar, false);
     }
+}
+
+// 编译类定义
+static void compileClassDefinition(CompileUnit* cu) {
+    Variable classVar;
+    if (cu->scopeDepth != -1) {
+        COMPILE_ERROR(cu->curParser, "class definition must be in the module scope!");
+    }
+
+    classVar.scopeType = VAR_SCOPE_MODULE;
+    consumeCurToken(cu->curParser, TOKEN_ID, "keyword class should follow by class name!"); // 读入类名
+    classVar.index = declareVariable(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+    // 生成类名,用于创建类
+    ObjString* className = newObjString(cu->curParser->vm, cu->curParser->preToken.start, cu->curParser->preToken.length);
+    // 生成加载类名的指令
+    emitLoadConstant(cu, OBJ_TO_VALUE(className));
+    if (matchToken(cu->curParser, TOKEN_LESS)) { // 类继承
+        expression(cu, BP_CALL); // 把类名加载到栈顶
+    } else {    // 默认加载object类为基类
+        emitLoadModuleVar(cu, "object");
+    }
+    // 创建类时不知道域的个数,先暂时写作255,以后回填
+    int fieldNumIndex = writeOpCodeByteOperand(cu, OPCODE_CREATE_CLASS, 0xff);
+    // 虚拟机执行完OPCODE_CREATE_CLASS后, 栈顶留下了创建好的类
+    // 故现在可以用该类为之前声明的类名className赋值
+    if (cu->scopeDepth == -1) {
+        emitStoreModuleVar(cu, classVar.index);
+    }
+    ClassBookKeep classBK;
+    classBK.name = className;
+    classBK.inStatic = false;
+    StringBufferInit(&classBK.fields);
+    IntBufferInit(&classBK.instantMethods);
+    IntBufferInit(&classBK.staticMethods);
+    cu->enclosingClassBK = &classBK;
+
+    consumeCurToken(cu->curParser, TOKEN_LEFT_BRACE, "expect '{' after class name in the class declaration!");
+
+    // 进入类体
+    enterScope(cu);
+
+    while(!matchToken(cu->curParser, TOKEN_RIGHT_BRACE)) {
+        compileClassBody(cu, classVar);
+        if (PEEK_TOKEN(cu->curParser) == TOKEN_EOF) {
+            COMPILE_ERROR(cu->curParser, "expect '}' after at the end of class declaration!");
+        }
+    }
+
+    // 回填域定义数量
+    // 域定义数量在compileVarDefinition统计
+    cu->fn->instrStream.datas[fieldNumIndex] = classBK.fields.count;
+
+    symbolTableClear(cu->curParser->vm, &classBK.fields);
+    IntBufferClear(cu->curParser->vm, &classBK.instantMethods);
+    IntBufferClear(cu->curParser->vm, &classBK.staticMethods);
+
+    cu->enclosingClassBK = NULL;
+    leaveScope(cu);
+}
+
+static void compileFunctionDefinition(CompileUnit* cu) {
+    if (cu->enclosingUnit != NULL) {
+        COMPILE_ERROR(cu->curParser, "'fun' should be in module scope");
+    }
+    consumeCurToken(cu->curParser, TOKEN_ID, "missing function name");
+    // 函数名加上Fn作为模块变量存储
+    char fnName[MAX_SIGN_LEN+4] = {'\0'}; // "fn xxx\0"
+    memmove(fnName, "Fn ", 3);
+    memmove(fnName+3, cu->curParser->preToken.start, cu->curParser->preToken.length);
+
+    uint32_t fnNameIndex = declareVariable(cu, fnName, strlen(fnName));
+    // 生成fnCU,专用于存储函数指令流
+    CompileUnit fnCU;
+    initCompileUnit(cu->curParser, &fnCU, cu, false);
+    Signature tmpFnSign = {SIGN_METHOD, "", 0, 0};
+    consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "expect '(' after function name!");
+
+    // 将形参声明为局部变量
+    if (!matchToken(cu->curParser, TOKEN_RIGHT_PAREN)) {
+        processParaList(&fnCU, &tmpFnSign);
+        consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parametre list!");
+    }
+    fnCU.fn->argNum = tmpFnSign.argNum;
+    consumeCurToken(cu->curParser, TOKEN_LEFT_BRACE, "expect '{' at the beginning of method body.");
+    // 编译函数体,将指令流写进该函数自己的指令单元fnCU
+    compileBody(&fnCU, false);
+
+#if DEBUG
+    endCompileUnit(&fnCU, fnName, strlen(fnName))
+#else
+    endCompileUnit(&fnCU);
+#endif
+    defineVariable(cu, fnNameIndex);
 }
 
 // 编译模块
