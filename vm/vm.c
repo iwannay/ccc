@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <utils.h>
 #include "core.h"
-
+#include "compiler.h"
 // 确保stack有效
 void ensureStack(VM* vm, ObjThread* objThread, uint32_t neededSots) {
     if (objThread->stackCapacity >= neededSots) {
@@ -93,6 +93,30 @@ static ObjUpvalue* createOpenUpvalue(VM* vm, ObjThread* objThread, Value* localV
     }
     newUpvalue->next = upvalue;
     return newUpvalue;
+}
+
+// 校验基类合法性
+static void validateSuperClass(VM* vm, Value classNameValue, uint32_t fieldNum, Value superClassValue) {
+    if (!VALUE_IS_CLASS(superClassValue)) {
+        ObjString* classNameString = VALUE_TO_OBJSTR(classNameValue);
+        RUN_ERROR("class '%s' 's superClass is not a valid class!", classNameString->value.start);
+    }
+    Class* superClass = VALUE_TO_CLASS(superClassValue);
+    // 基类不允许为内建类
+    if (superClass == vm->stringClass ||
+        superClass == vm->mapClass ||
+        superClass == vm->rangeClass ||
+        superClass == vm->listClass ||
+        superClass == vm->nullClass ||
+        superClass == vm->boolClass ||
+        superClass == vm->numberClass ||
+        superClass == vm->fnClass ||
+        superClass == vm->threadClass) {
+        RUN_ERROR("superClass mustn't be a buildin class!");
+    }
+    if (superClass->fieldNum+fieldNum > MAX_FIELD_NUM) {
+        RUN_ERROR("number of field including super exceed %d!", MAX_FIELD_NUM);
+    }
 }
 
 // 初始化虚拟机
