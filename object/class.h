@@ -85,5 +85,5 @@ typedef union {
 
 #define CAPACITY_GROW_FACTOR 4
 #define MIN_CAPACITY 64
-
+inline Class* getClassOfObj(VM* vm, Value object);
 #endif

@@ -51,7 +51,7 @@ typedef struct {
     // 在本frame中执行的闭包函数
     ObjClosure* closure;
 
-    // iframe 是共享thread.stack
+    // frame 是共享thread.stack
     // 此项用于指向本irame所在thread运行时栈的起始地址
     Value* stackStart;
 } Frame; // 调用框架
