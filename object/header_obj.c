@@ -10,4 +10,5 @@ void initObjHeader(VM* vm, ObjHeader* objHeader, ObjType objType, Class* class) 
     objHeader->isDark = false;
     objHeader->class = class;
     objHeader->next = vm->allObjects;
+    vm->allObjects = objHeader;
 }

@@ -30,10 +30,10 @@ typedef struct {
 typedef struct upvalue {
     ObjHeader objHeader;
 
-    // 栈是个Value 类型的数组，localVarPtr 指向upvalue所关联的局部变量
+    // 运行时栈是个Value类型的数组，localVarPtr 指向upvalue所关联的局部变量在运行时栈中的指针
     Value* localVarPtr;
     
-    // 已被关闭的upvalue
+    // 已被关闭的upvalue的指针
     Value closedUpvalue;
 
     struct upvalue* next; // 用以链接openUpvalue链表

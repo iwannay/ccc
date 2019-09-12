@@ -53,6 +53,48 @@ inline static void createFrame(VM* vm, ObjThread* objThread, ObjClosure* ObjClos
     prepareFrame(objThread, ObjClosure, objThread->esp-argNum);
 }
 
+// 关闭在栈中slot为lastSlot及之上的upvalue
+// 关闭即upvalue.localVarPtr修改指针地址由运行时栈,改为自身upvalue.closedUpvalue
+static void closedUpvalue(ObjThread* objThread, Value* lastSlot) {
+    ObjUpvalue* upvalue = objThread->openUpvalues;
+    while (upvalue != NULL && upvalue->localVarPtr >= lastSlot) {
+        upvalue->closedUpvalue = *(upvalue->localVarPtr);
+        // 关闭后把指向运行时栈的指针改为指向自身的closedUpvalue
+        upvalue->localVarPtr = &(upvalue->closedUpvalue);
+        upvalue = upvalue->next;
+    }
+    objThread->openUpvalues = upvalue;
+}
+
+// 创建线程已打开的upvalue链表,并将localVarPtr所属的upvalue以降序插入到该链表
+static ObjUpvalue* createOpenUpvalue(VM* vm, ObjThread* objThread, Value* localVarPtr) {
+    // 如果openUpvalues链表为空就创建
+    if (objThread->openUpvalues == NULL) {
+        objThread->openUpvalues = newObjUpvalue(vm, localVarPtr);
+        return objThread->openUpvalues;
+    }
+    // 下面已以upvalue.localVarPtr降序组织openUpvalues
+    ObjUpvalue*  preUpvalue = NULL;
+    ObjUpvalue* upvalue = objThread->openUpvalues;
+
+    // 保证降序
+    while(upvalue != NULL && upvalue->localVarPtr > localVarPtr) {
+        preUpvalue = upvalue;
+        upvalue = upvalue->next;
+    }
+    if (upvalue != NULL && upvalue->localVarPtr == localVarPtr) {
+        return upvalue;
+    }
+    ObjUpvalue* newUpvalue = newObjUpvalue(vm, localVarPtr);
+    if (preUpvalue == NULL) {
+        objThread->openUpvalues = newUpvalue;
+    } else {
+        preUpvalue->next = newUpvalue;
+    }
+    newUpvalue->next = upvalue;
+    return newUpvalue;
+}
+
 // 初始化虚拟机
 void initVM(VM* vm) {
     vm->allocatedBytes = 0;
