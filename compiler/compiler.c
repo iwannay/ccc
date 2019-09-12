@@ -1806,6 +1806,55 @@ static void compileFunctionDefinition(CompileUnit* cu) {
     defineVariable(cu, fnNameIndex);
 }
 
+// 编译import导入
+static void compileImport(CompileUnit* cu) {
+    // import "foo"
+    // 转化为
+    // System.importModule("foo")
+    // import foo for bar1, bar2
+    // 转化为
+    // bar1 = System.getModuleVariable("foo", "bar1")
+    // bar2 = System.getModuleVariable("foo", "bar2")
+    consumeCurToken(cu->curParser, TOKEN_ID, "expect module name after export!");
+    Token moduleNameToken = cu->curParser->preToken;
+    // 过滤扩展名
+    if (cu->curParser->preToken.start[cu->curParser->preToken.length] == '.') {
+        printf("\nwarning!!! the imported module needn't extension!, compiler try to ignor it!");
+        getNextToken(cu->curParser);    // 跳过.
+        getNextToken(cu->curParser);    // 跳过extension
+    }
+    ObjString* moduleName = newObjString(cu->curParser->vm, moduleNameToken.start, moduleNameToken.length);
+    uint32_t constModIdx = addConstant(cu, OBJ_TO_VALUE(moduleName));
+    // 为调用System.importModule("foo")压入参数system
+    emitLoadModuleVar(cu, "System");
+    // 压入参数foo
+    writeOpCodeShortOperand(cu, OPCODE_LOAD_CONSTANT, constModIdx);
+    // 调用
+    emitCall(cu, 1, "importModule(_)", 15);
+    // 回收返回值args[0]所子啊空间
+    writeOpCode(cu, OPCODE_POP);
+    
+    if (!matchToken(cu->curParser, TOKEN_FOR)) {
+        return;
+    }
+    do {
+        consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name after 'for' in import!"); 
+        uint32_t varIdx = declareVariable(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+        ObjString* constVarName = newObjString(cu->curParser->vm, cu->curParser->preToken.start, cu->curParser->preToken.length);
+        uint32_t constVarIdx = addConstant(cu, OBJ_TO_VALUE(constVarName));
+        
+        // 为调用System.getModuleVariable("foo", "bar1")压入system
+        emitLoadModuleVar(cu, "System");
+        // 压入foo
+        writeOpCodeShortOperand(cu, OPCODE_LOAD_CONSTANT, constModIdx);
+        // 压入bar1
+        writeOpCodeShortOperand(cu, OPCODE_LOAD_CONSTANT, constVarIdx);
+        // 调用
+        emitCall(cu, 2, "getModuleVariable(_,_)", 22);
+        defineVariable(cu, varIdx);
+    } while(matchToken(cu->curParser, TOKEN_COMMA));
+}
+
 // 编译模块
 ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
     // 各源码模块文件需要单独的parser
