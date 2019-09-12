@@ -26,7 +26,7 @@ typedef enum {
     value.type = VT_OBJ;\
     value.objHeader = (ObjHeader*)(objPtr);\
     value;\
-})\
+})
 
 
 #define VALUE_TO_OBJ(value) (value.objHeader)
@@ -54,15 +54,14 @@ typedef enum {
 #define VALUE_IS_0(value) (VALUE_IS_NUM(value) && (value).num == 0)
 
 // 原生方法指针
-// TODO 
-typedef bool (*Primitive) (VM* vm, Value* args);
+typedef bool (*Primitive)(VM* vm, Value* args);
 
 typedef struct {
     MethodType type; // union 中的值由type的值决定
     union {
         // 指向脚本方法所关联的c实现
         Primitive primFn;
-        // 指向脚本代码比那以后的ObjClosure或ObjFn
+        // 指向脚本代码编译后的ObjClosure或ObjFn
         ObjClosure* obj;
     };
 } Method;
