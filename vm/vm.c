@@ -216,10 +216,10 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
         curFrame = &curThread->frames[curThread->usedFrameNum-1];   \
         stackStart = curFrame->stackStart;  \
         ip = curFrame->ip;  \
-        fn = curFrame->closure->fn;
+        fn = curFrame->closure->fn
     #define DECODE loopStart:   \
         opCode = READ_BYTE();   \
-        switch (opCode);
+        switch (opCode)
     #define CASE(shortOpCode) case OPCODE_##shortOpCode
     #define LOOP() goto loopStart
 
@@ -283,7 +283,7 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             CASE(CALL16):
                 // 指令流: 2字节的method索引
                 // 因为还有隐式的receiver(就是下面的args[0]),所以参数个数+1
-                argNum = opCode-OPCODE_CALL0+1
+                argNum = opCode-OPCODE_CALL0+1;
                 index = READ_SHORT(); // 方法名索引
                 args = curThread->esp - argNum;
                 // 获得方法所在的类
@@ -306,9 +306,277 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             CASE(SUPER14):
             CASE(SUPER15):
             CASE(SUPER16):
-        }
-    }
+                // 指令流1: 2字节的method索引
+                // 指令流2：2字节的基类常量索引
+                // 因为还有隐式的receiver(就是下面的args[0]),所以参数个数+1
+                argNum = opCode - OPCODE_SUPER0 + 1;
+                index = READ_SHORT();
+                args = curThread->esp-argNum;
+                class = VALUE_TO_CLASS(fn->constants.datas[READ_SHORT()]);
+            invokeMethod:
+                if ((uint32_t)index > class->methods.count || (method = &class->methods[index])->type == MT_NONE) {
+                    RUN_ERROR("method '%s' not found!", vm->allMethodNames.datas[index].str);
+                }
+                switch (method->type) {
+                    case MT_PRIMITIVE:
+                        if (method->primFn(vm, args)) { // 如果返回值为true，则进行空间回收
+                            // argNum-1是为了保留args[0],args[0]是返回值，由主调方接收
+                            curThread->esp -= argNum-1;
+                        } else {
+                            // 有两种情况
+                            // 1. 出错
+                            // 2. 切换了线程(vm->curThread)
+                            STORE_CUR_FRAME();
+                            if (vm->curThread == NULL) {
+                                return VM_RESULT_SUCCESS;
+                            }
+                            curThread = vm->curThread;
+                            LOAD_CUR_FRAME();
+                            if (!VALUE_IS_NULL(curThread->errorObj)) {
+                                if (VALUE_IS_OBJSTR(curThread->errorObj)) {
+                                    ObjString* err = VALUE_TO_OBJSTR(curThread->errorObj);
+                                    printf("%s", err->value.start);
+                                }
+                                PEEK() = VT_TO_VALUE(VT_NULL);
+                            }
 
+                            if (vm->curThread == NULL) {
+                                return VM_RESULT_SUCCESS;
+                            }
+                            curThread = vm->curThread;
+                            LOAD_CUR_FRAME();
+
+                        }
+                        break;
+                    case MT_SCRIPT:
+                        STORE_CUR_FRAME();
+                        createFrame(vm, curThread, (ObjClosure*)method->obj, argNum);
+                        LOAD_CUR_FRAME();
+                    case MT_FN_CALL:
+                        ASSERT(VALUE_IS_OBJCLOSURE(args[0]), "instance must be a closure!");
+                        ObjFn* objFn = VALUE_TO_OBJCLOSURE(args[0]->fn);
+                        
+                        if (argNum - 1 < objFn->argNum) {
+                            RUN_ERROR("arguments less");
+                        }
+                        STORE_CUR_FRAME();
+                        createFrame(vm, curThread, VALUE_TO_OBJCLOSURE(args[0], argNum));
+                        LOAD_CUR_FRAME();
+                        break;
+                    default:
+                        NOT_REACHED();
+                }
+                LOOP();
+        }
+        CASE(LOAD_UPVALUE):
+            PUSH(*((curFrame->closure->upvalues[READ_BYTE()])->localVarPtr));
+            LOOP();
+        CASE(STORE_UPVALUE):
+            // 栈顶：upvalue值
+            // 指令流： 1字节的upvalue索引
+            *(curFrame->closure->upvalues[READ_BYTE()]->localVarPtr) = PEEK();
+            LOOP();
+        CASE(LOAD_MODULE_VAR):
+            // 指令流：两字节的模块变量索引
+            PUSH(fn->module->moduleVarValue.datas[READ_SHORT()]);
+            LOOP();
+        CASE(STORE_MODULE_VAR):
+            fn->module->moduleVarValue.datas[READ_SHORT()] = PEEK();
+            LOOP();
+        CASE(STORE_THIS_FIELD):{
+            // 栈顶： field值
+            // 指令流：1字节的field索引
+            uint8_t fieldIdx = READ_BYTE();
+            ASSERT(VALUE_IS_OBJINSTANCE(stackStart[0]), "receiver should be instance!");
+            ObjInstance* objInstance = VALUE_TO_OBJINSTANCE(stackStart[0]);
+            ASSERT(fieldIdx < objInstance->objHeader.class->fieldNum, "out of bounds field!");
+            objInstance->fields[fieldIdx] = PEEK();
+            LOOP();
+        }
+        CASE(LOAD_FIELD):{
+            // 栈顶：实例对象
+            // 指令流：1字节的field索引
+            uint8_t fieldIdx = READ_BYTE(); // field index
+            Value receiver = POP();
+            ASSERT(VALUE_IS_OBJINSTANCE(receiver), "receiver should be instance!");
+            ObjInstance* ObjInstance = VALUE_TO_OBJINSTANCE(receiver);
+            ASSERT(fieldIdx < ObjInstance->objHeader.class->fieldNum, "out of bounds field!");
+            PUSH(ObjInstance->fields[fieldIdx]);
+            LOOP();
+        }
+        CASE(STORE_FIELD):{
+            // 栈顶：实例对象,次栈顶：field值
+            // 指令流：1字节的field索引
+            uint8_t fieldIdx = READ_BYTE();
+            Value receiver = POP();
+            ASSERT(VALUE_IS_OBJINSTANCE(receiver), "receiver should be instance!");
+            ObjInstance* ObjInstance = VALUE_TO_OBJINSTANCE(receiver);
+            ASSERT(fieldIdx < ObjInstance->objHeader.class->fieldNum, "out of bounds field!");
+            ObjInstance->fields[fieldIdx] = PEEK();
+            LOOP();
+        }
+        CASE(JUMP): {
+            // 指令流： 2字节的跳转正偏移量
+            int16_t offset = READ_SHORT();
+            ASSERT(offset>0, "OPCODE_JUMP's operand must be postive!");
+            ip += offset;
+            LOOP();
+        }
+        CASE(LOOP): {
+            // 指令流： 2字节的跳转正偏移量
+            int16_t offset = READ_SHORT();
+            ASSERT(offset>0, "OPCODE_LOOP's operand must be positive!");
+            ip -= offset;
+            LOOP();
+        }
+        CASE(JUMP_IF_FALSE): {
+            // 栈顶：跳转条件bool值
+            // 指令流：2字节的跳转偏移量
+            int16_t offset = READ_SHORT();
+            ASSERT(offset>0, "OPCODE_JUMP_IF_FALSE's operand must be positive");
+            Value condition = POP();
+            if (VALUE_IS_FALSE(condition) || VALUE_IS_NULL(condition)) {
+                ip += offset;
+            }
+            LOOP();
+        }
+        CASE(AND):{
+            // 栈顶：跳转条件bool值
+            // 指令流：2字节的跳转偏移量
+            uint16_t offset = READ_SHORT();
+            ASSERT(offset>0, "OPCODE_AND's operand must be positive!");
+            Value condition = PEEK();
+            if (VALUE_IS_FALSE(condition) || VALUE_IS_NULL(condition)) {
+                // 若条件为假，则不再计算and的右操作数
+                ip += offset;
+            } else {
+                // 执行and右操作数，并丢掉栈顶的条件
+                DROP();
+            }
+            LOOP();
+        }
+        CASE(OR):{
+            // 栈顶：跳转条件bool值
+            // 指令流：2字节的跳转偏移量
+            uint16_t offset = READ_SHORT();
+            ASSERT(offset>0, "OPCODE_OR's operand must be positive!");
+            Value condition = PEEK();
+            if (VALUE_IS_FALSE(condition) || VALUE_IS_NULL(condition)) {
+                // 若条件为假 执行OR右操作数，并丢掉栈顶的条件
+                DROP();
+            } else {
+                // 若条件为真，则不再计算AND的右操作数
+                ip += offset;
+            }
+            LOOP();
+        }
+        CASE(CLOSE_UPVALUE):
+            // 栈顶：相当于局部变量
+            // 把地址大于栈顶局部变量的upvalue关闭
+            closedUpvalue(curThread, curThread->esp - 1);
+            DROP(); // 弹出栈顶局部变量
+            LOOP();
+        CASE(RETURN): {
+            // 栈顶：返回值
+            Value retVal = POP();
+            // 回收堆栈框架
+            curThread->usedFrameNum--;
+            // 关闭此作用域内所有upvalue
+            closedUpvalue(curThread, stackStart);
+            if (curThread->usedFrameNum == 0) {
+                // 如果不是被另一个线程调用的，直接结束
+                if (curThread->caller == 0) {
+                    curThread->stack[0] = retVal;
+                    curThread->esp = curThread->stack+1;
+                    return VM_RESULT_SUCCESS;
+                }
+                // 恢复主调方线程的调度
+                ObjThread* callerThread = curThread->caller;
+                curThread->caller = NULL;
+                curThread = callerThread;
+                vm->curThread = callerThread;
+                // 主调线程的栈顶存储被调线程的结果
+                curThread->esp[-1] = retVal;
+            } else {
+                // 将返回值置于运行时栈栈顶
+                stackStart[0] = retVal;
+                // 回收堆栈：保留出结果所在的slot即stackStart[0], 其他全部丢弃
+                curThread->esp = stackStart+1;
+                LOAD_CUR_FRAME();
+                LOOP();
+            }
+        }
+        CASE(CONSTRUCT):{
+            // 栈底：stackStart[0]是class
+            ASSERT(VALUE_IS_CLASS(stackStart[0]), "stackStart[0] should be a class for OPCODE_CONSTRUCT");
+            ObjInstance* objInstance = newObjInstance(vm, VALUE_TO_CLASS(stackStart[0]));
+            stackStart[0] = OBJ_TO_VALUE(objInstance);
+            LOOP();
+        }
+        CASE(CREATE_CLOSURE):{
+            // 指令流：2字节待创建闭包的函数在常量表中的索引+函数所用的upvalue数*x
+            // endCompileUnit已经将闭包函数添加进了常量表
+            ObjFn* objFn = VALUE_TO_OBJFN(fn->constants.datas[READ_SHORT()]);
+            ObjClosure* objClosure = newObjClosure(vm, objFn);
+            PUSH(OBJ_TO_VALUE(objClosure));
+            uint32_t idx  = 0;
+            while (idx < objFn->upvalueNum) { 
+                // 读入endCompileUnit函数最后为每个upvalue写入数据对
+                uint8_t isEnclosingLocalVar = READ_BYTE();
+                uint8_t index = READ_BYTE();
+                if (isEnclosingLocalVar) {  // 是直接外层的局部变量
+                    // 创建upvalue
+                    objClosure->upvalues[idx] = createOpenUpvalue(vm, curThread, curFrame->stackStart+index);
+                } else {
+                    // 从父编译单元中继承
+                    // 当前编译的是下一层的闭包
+                    objClosure->upvalues[idx] = curFrame->closure->upvalues[index];
+                }
+                idx++;
+            }
+            LOOP();
+        }
+        CASE(CREATE_CLASS): {
+            // 指令流：1字节的field数量
+            // 栈顶：基类 次栈顶：子类名
+            uint32_t fieldNum = READ_BYTE();
+            Value superClass = curThread->esp[-1]; // 基类名
+            Value className = curThread->esp[-2]; // 子类名
+            // 回收基类占用的空间，次栈顶保留，创建的类会直接用该控件
+            DROP();
+            validateSuperClass(vm, className, fieldNum, superClass);
+            Class* class = newClass(vm, VALUE_TO_OBJSTR(className), fieldNum, VALUE_TO_CLASS(superClass));
+            stackStart[0] = OBJ_TO_VALUE(class);
+            LOOP();
+        }
+        CASE(INSTANCE_METHOD):
+        CASE(STATIC_METHOD):{
+            // 指令流：待绑定的方法“名字”在vim->allMethodNames中的2字节索引
+            // 栈顶：带绑定的类，次栈顶：待绑定的方法
+            uint32_t methodnameIdx = READ_SHORT();
+            Class* class = VALUE_TO_CLASS(PEEK());
+            // 获得待绑定的方法
+            // 是由OPCODE_CREATE_CLOSURE操作码生成后压入到栈中的
+            Value method = PEEK2();
+            bindMethodAndPatch(vm, opCode, methodnameIdx, class, method);
+            DROP();
+            DROP();
+            DROP();
+        }
+        CASE(END):
+            NOT_REACHED();
+    }
+    NOT_REACHED();
+    
+    #undef PUSH
+    #undef POP
+    #undef DROP
+    #undef PEEK
+    #undef PEEK2
+    #undef LOAD_CUR_FRAME
+    #undef STORE_CUR_FRAME
+    #undef READ_BYTE
+    #undef READ_SHORT
 }
 
 // 初始化虚拟机

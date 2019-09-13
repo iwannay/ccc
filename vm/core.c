@@ -306,8 +306,8 @@ static ObjThread* loadModule(VM* vm, Value moduleName, const char* moduleCode) {
     return moduleThread;
 }
 
-// 执行模块，目前为空
+// 执行模块
 VMResult executeModule(VM* vm, Value moduleName, const char* moduleCode) {
     ObjThread* objThread = loadModule(vm, moduleName, moduleCode);
-    return VM_RESULT_ERROR;
+    return executeInstruction(vm, objThread);
 }

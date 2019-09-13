@@ -66,7 +66,7 @@ typedef struct {
     };
 } Method;
 
-DECLARE_BUFFER_TYPE(Method);
+DECLARE_BUFFER_TYPE(Method)
 
 // 类是对象的模板
 struct class {
@@ -86,4 +86,5 @@ typedef union {
 #define CAPACITY_GROW_FACTOR 4
 #define MIN_CAPACITY 64
 inline Class* getClassOfObj(VM* vm, Value object);
+Class* newClass(VM* vm, ObjString* className, uint32_t fieldNum, Class* superClass);
 #endif

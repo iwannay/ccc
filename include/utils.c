@@ -18,7 +18,6 @@ void* memManager(VM* vm, void* ptr, uint32_t oldSize, uint32_t newSize) {
         free(ptr);
         return NULL;
     }
-
     return realloc(ptr, newSize);
 }
 
