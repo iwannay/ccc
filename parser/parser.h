@@ -97,7 +97,7 @@ struct parser {
     Token curToken;
     Token preToken;
     ObjModule* curModule;
-    CompileUnit* curlCompileUnit;
+    CompileUnit* curCompileUnit;
     // 处于内嵌表达式中期望的右括号数量，用于跟踪小括号对的嵌套
     int interpolationExpectRightParenNum;
     struct parser* parent; // 指向父parser

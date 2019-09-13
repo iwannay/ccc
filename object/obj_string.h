@@ -1,7 +1,8 @@
 #ifndef _OBJECT_STRING_H
 #define _OBJECT_STRING_H
 #include "header_obj.h"
-#include <ctype.h>
+#include "common.h"
+#include "utils.h"
 
 typedef struct {
     ObjHeader objHeader;

@@ -560,8 +560,18 @@ static Variable getVarFromLocalOrUpvalue(CompileUnit* cu, const char* name, uint
 }
 
 // 编译程序
-static void lcompileProgram(CompileUnit* cu) {
-    ;
+static void compileProgram(CompileUnit* cu) {
+    if (matchToken(cu->curParser, TOKEN_CLASS)) {
+        compileClassDefinition(cu);
+    } else if (matchToken(cu->curParser, TOKEN_FUN)) {
+        compileFunctionDefinition(cu);
+    } else if (matchToken(cu->curParser, TOKEN_VAR)) {
+        compileVarDefinition(cu, cu->curParser->preToken.type == TOKEN_STATIC);
+    } else if (matchToken(cu->curParser, TOKEN_IMPORT)) {
+        compileImport(cu);
+    } else {
+        compileStatement(cu);
+    }
 }
 
 // 声明模块变量,与defineModuleVar的区别是不做重定义检查,默认为声明
@@ -1874,9 +1884,31 @@ ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
     // 初始的parser->curToken.type为TOKEN_UNKNOWN,下面使其指向第一个合法的token
     getNextToken(&parser);
     
-    // TODO: next
     while (!matchToken(&parser, TOKEN_EOF)) {
         compileProgram(&moduleCU);
     }
-    printf("to be contine....\n");exit(0);
+    
+    // 编译模块完成， 生成return null 返回，避免执行下面endCompileUnit中添加的OPCODE_END
+    writeOpCode(&moduleCU, OPCODE_PUSH_NULL);
+    writeOpCode(&moduleCU, OPCODE_RETURN);
+    
+    uint32_t idx = moduleVarNumBefor;
+    while (idx < objModule->moduleVarValue.count) {
+        if (VALUE_IS_NUM(objModule->moduleVarValue.datas[idx])) {
+            char* str = objModule->moduleVarName.datas[idx].str;
+            ASSERT(str[objModule->moduleVarName.datas[idx].length] == '\0', "module var name is not closed!");
+            uint32_t lineNo = VALUE_TO_NUM(objModule->moduleVarName.datas[idx]);
+            COMPILE_ERROR(&parser, "line:%d, variable '%s' not defined!", lineNo, str);
+        }
+        idx++;
+    }
+    // 编译完成后置空
+    vm->curParser->curCompileUnit = NULL;
+    vm->curParser = vm->curParser->parent;
+
+#if DEBUG
+    return endCompileUnit(&moduleCU, "(script)", 8);
+#else
+    return endCompileUnit(&moduleCU);
+#endif
 }

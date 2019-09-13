@@ -67,7 +67,7 @@ typedef struct {
         }\
     }\
 \
-    void type##BufferAdd(VM* vm, type##Buffer* buf, type data) {\
+    void type##BufferAdd(VM* vm, type##Buffer* buf, type data) { \
         type##BufferFillWrite(vm, buf, data, 1);\
     }\
 \

@@ -56,7 +56,7 @@ typedef enum {
 // 原生方法指针
 typedef bool (*Primitive)(VM* vm, Value* args);
 
-typedef struct {
+typedef struct method {
     MethodType type; // union 中的值由type的值决定
     union {
         // 指向脚本方法所关联的c实现

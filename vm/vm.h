@@ -39,5 +39,6 @@ struct vm {
 };
 
 void initVM(VM* vm);
+VMResult executeInstruction(VM* vm, register ObjThread* curThread);
 VM* newVM(void);
 #endif
