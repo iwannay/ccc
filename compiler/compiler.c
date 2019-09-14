@@ -2,6 +2,7 @@
 #include "parser.h"
 #include "core.h"
 #include "utils.h"
+#include <string.h>
 
 #if DEBUG
     #include "debug.h"
@@ -104,13 +105,18 @@ typedef struct {
     methodSignatureFn methodSign;
 } SymbolBindRule; // 符号绑定规则
 
+static uint32_t addConstant(CompileUnit* cu, Value constant);
+static void expression(CompileUnit* cu, BindPower rbp);
+static void compileProgram(CompileUnit* cu);
+static void infixOperator(CompileUnit* cu, bool canAssign UNUSED);
+static void unaryOperator(CompileUnit* cu, bool canAssign UNUSED);
+static void compileStatment(CompileUnit* cu);
+
 // 添加常量并返回其索引
 static uint32_t addConstant(CompileUnit* cu, Value constant) {
     ValueBufferAdd(cu->curParser->vm, &cu->fn->constants, constant);
     return cu->fn->constants.count - 1;
 }
-
-
 
 // 把Signature 转换为字符串,返回字符串长度
 static uint32_t sign2String(Signature* sign, char* buf) {
@@ -135,7 +141,7 @@ static uint32_t sign2String(Signature* sign, char* buf) {
         // SIGN_METHOD和SIGN_CONSTRUCT 形式:xxx(_,...)
         case SIGN_CONSTRUCT:
         case SIGN_METHOD: {
-            buf[pos++] = "(";
+            buf[pos++] = '(';
             uint32_t idx = 0;
             while (idx < sign->argNum) {
                buf[pos++] = '_';
@@ -192,76 +198,6 @@ static uint32_t sign2String(Signature* sign, char* buf) {
     return pos; // 返回签名函数长度
 }
 
-static void expression(CompileUnit* cu, BindPower rbp) {
-    DenotationFn nud = Rules[cu->curParser->curToken.type].nud;
-    // 表达式开头的要么是操作数,要么是前缀运算符,必然存在nud方法
-    ASSERT(nud != NULL, "nud is NULL!");
-    getNextToken(cu->curParser);
-    bool canAssign = rbp < BP_ASSIGN;
-    nud(cu, canAssign);
-    while (rbp < Rules[cu->curParser->curToken.type].lbp) {
-        DenotationFn led = Rules[cu->curParser->curToken.type].led;
-        getNextToken(cu->curParser);
-        led(cu, canAssign);
-    }
-}
-
-// 通过签名方法编译方法调用, 包括callX和superX指令
-static void emitCallBySignature(CompileUnit* cu, Signature* sign, OpCode opCode) {
-    char signBuffer[MAX_SIGN_LEN];
-    uint32_t length = sign2String(sign, signBuffer);
-
-    // 确保签名录入到vm->allMethodNames中
-    int symbolIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signBuffer, length);
-    writeOpCodeShortOperand(cu, opCode+sign->argNum, symbolIndex);
-
-    // 保留基类的slot
-    if (opCode == OPCODE_SUPER0) {
-        writeShortOperand(cu, addConstant(cu, VT_TO_VALUE(VT_NULL)));
-    }
-}
-
-// 生成方法调用的指令,仅限callx指令
-static void emitCall(CompileUnit* cu, int numArgs, const char* name, int length) {
-    int symbolIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, name, length);
-    writeOpCodeShortOperand(cu, OPCODE_CALL0+numArgs, symbolIndex);
-}
-
-// 中缀运算符.led方法
-static void infixOperator(CompileUnit* cu, bool canAssign UNUSED) {
-    SymbolBindRule* rule = &Rules[cu->curParser->preToken.type];
-    // 左右操作数绑定权值一样
-    BindPower rbp = rule->lbp;
-    expression(cu, rbp); // 解析右操作数
-
-    // 生成一个参数的签名
-    Signature sign = {SIGN_METHOD, rule->id, strlen(rule->id), 1};
-    emitCallBySignature(cu, &sign, OPCODE_CALL0);
-}
-
-// 前缀运算符.nud方法,如-, !等
-static void unaryOperator(CompileUnit* cu, bool canAssign UNUSED) {
-    SymbolBindRule* rule = &Rules[cu->curParser->preToken.type];
-    // BP_UNARY 作为rbp去调用express解析右操作数
-    expression(cu, BP_UNARY);
-    // 生成调用前缀运算符的指令
-    // 0 个参数,前缀运算符都是1个字符,长度是1
-    emitCall(cu, 0, rule->id, 1);
-
-}
-
-// 生成加载常量的指令
-static void emitLoadConstant(CompileUnit* cu, Value value) {
-    int index = addConstant(cu, value);
-    writeOpCodeShortOperand(cu, OPCODE_LOAD_CONSTANT, index);
-}
-
-// 数字和字符串.nud() 编译字面量
-static void literal(CompileUnit* cu, bool canAssign UNUSED) {
-    // literal 是常量,字符串和数字的nud方法,用来返回字面值
-    emitLoadConstant(cu, cu->curParser->preToken.value);
-}
-
 // 不关注左操作数的符号称为前缀符号
 // 用于入字面量,变量名,前缀符号等非运算符
 // SymbolBindRule
@@ -284,7 +220,7 @@ static void literal(CompileUnit* cu, bool canAssign UNUSED) {
 #define UNUSED_RULE {NULL, BP_NONE, NULL, NULL, NULL}
 
 static void initCompileUnit(Parser* parser, CompileUnit* cu, CompileUnit* enclosingUnit, bool isMethod) {
-    parser->curlCompileUnit = cu;
+    parser->curCompileUnit = cu;
     cu->curParser = parser;
     cu->enclosingUnit = enclosingUnit;
     cu->curLoop = NULL;
@@ -362,34 +298,39 @@ static void writeOpCodeShortOperand(CompileUnit* cu, OpCode opCode, int operand)
     writeShortOperand(cu, operand);
 }
 
-// 为单运算符生成签名
-static void unaryMethodSignature(CompileUnit* cu UNUSED, Signature* sign UNUSED) {
-    sign->type = SIGN_GETTER;
-}
 
-// 为中缀运算符创建签名
-static void infixMethodSignature(CompileUnit* cu, Signature* sign) {
-    // 在类中的运算符都是方法,类型为SIGN_METHOD
-    sign->type = SIGN_METHOD;
-    // 中缀运算符只有一个参数,故初始为1
-    sign->argNum = 1;
-    consumeCurToken(cu->curParser, TOKEN_LEFT_BRACE, "expect '(' after infix operator!");
-    consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
-    declareLocalVar(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
-    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter!");
-}
 
-// 为既做单运算符又做中缀运算符的符号方法创建签名
-static void mixMethodSignature(CompileUnit* cu, Signature* sign) {
-    // 单运算符
-    sign->type = SIGN_GETTER;
-    // 若后面有'('说明为中缀运算符
-    if (matchToken(cu->curParser, TOKEN_LEFT_PAREN)) {
-        sign->type = SIGN_METHOD;
-        consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
-        declareLocalVar(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
-        consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter!");
+// 通过签名方法编译方法调用, 包括callX和superX指令
+static void emitCallBySignature(CompileUnit* cu, Signature* sign, OpCode opCode) {
+    char signBuffer[MAX_SIGN_LEN];
+    uint32_t length = sign2String(sign, signBuffer);
+
+    // 确保签名录入到vm->allMethodNames中
+    int symbolIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signBuffer, length);
+    writeOpCodeShortOperand(cu, opCode+sign->argNum, symbolIndex);
+
+    // 保留基类的slot
+    if (opCode == OPCODE_SUPER0) {
+        writeShortOperand(cu, addConstant(cu, VT_TO_VALUE(VT_NULL)));
     }
+}
+
+// 生成方法调用的指令,仅限callx指令
+static void emitCall(CompileUnit* cu, int numArgs, const char* name, int length) {
+    int symbolIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, name, length);
+    writeOpCodeShortOperand(cu, OPCODE_CALL0+numArgs, symbolIndex);
+}
+
+// 生成加载常量的指令
+static void emitLoadConstant(CompileUnit* cu, Value value) {
+    int index = addConstant(cu, value);
+    writeOpCodeShortOperand(cu, OPCODE_LOAD_CONSTANT, index);
+}
+
+// 数字和字符串.nud() 编译字面量
+static void literal(CompileUnit* cu, bool canAssign UNUSED) {
+    // literal 是常量,字符串和数字的nud方法,用来返回字面值
+    emitLoadConstant(cu, cu->curParser->preToken.value);
 }
 
 // 添加局部变量到cu
@@ -400,24 +341,6 @@ static uint32_t addLocalVar(CompileUnit* cu, const char* name, uint32_t length) 
     var->scopeDepth = cu->scopeDepth;
     var->isUpvalue = false;
     return cu->localVarNum++;
-}
-
-// 丢掉作用域scopeDepth之内的局部局部变量
-static uint32_t discardLocalVar(CompileUnit* cu, int scopeDepth) {
-    ASSERT(cu->scopeDepth>-1, "upmost scope can't exit!");
-    int localIdx = cu->localVarNum - 1;
-    while (localIdx >= 0 && cu->localVars[localIdx].scopeDepth >= scopeDepth) {
-        if (cu->localVars[localIdx].isUpvalue) {
-            // 如果局部变量是内层的upvalue就关闭
-            writeByte(cu, OPCODE_CLOSE_UPVALUE);
-        } else {
-            // 否则就弹出该变量回收空间
-            writeByte(cu, OPCODE_POP);
-        }
-        localIdx--;
-    }
-    // 返回丢掉的局部变量的个数
-    return cu->localVarNum-1-localIdx;
 }
 
 // 声明局部变量
@@ -457,7 +380,56 @@ static int declareVariable(CompileUnit* cu, const char* name, uint32_t length) {
     }
 
     // 局部变量
-    addLocalVar(cu, name, length);
+    return declareLocalVar(cu, name, length);
+}
+
+// 为中缀运算符创建签名
+static void infixMethodSignature(CompileUnit* cu, Signature* sign) {
+    // 在类中的运算符都是方法,类型为SIGN_METHOD
+    sign->type = SIGN_METHOD;
+    // 中缀运算符只有一个参数,故初始为1
+    sign->argNum = 1;
+    consumeCurToken(cu->curParser, TOKEN_LEFT_BRACE, "expect '(' after infix operator!");
+    consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
+    declareLocalVar(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter!");
+}
+
+// 为既做单运算符又做中缀运算符的符号方法创建签名
+static void mixMethodSignature(CompileUnit* cu, Signature* sign) {
+    // 单运算符
+    sign->type = SIGN_GETTER;
+    // 若后面有'('说明为中缀运算符
+    if (matchToken(cu->curParser, TOKEN_LEFT_PAREN)) {
+        sign->type = SIGN_METHOD;
+        consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
+        declareLocalVar(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+        consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter!");
+    }
+}
+
+
+// 为单运算符生成签名
+static void unaryMethodSignature(CompileUnit* cu UNUSED, Signature* sign UNUSED) {
+    sign->type = SIGN_GETTER;
+}
+
+// 丢掉作用域scopeDepth之内的局部局部变量
+static uint32_t discardLocalVar(CompileUnit* cu, int scopeDepth) {
+    ASSERT(cu->scopeDepth>-1, "upmost scope can't exit!");
+    int localIdx = cu->localVarNum - 1;
+    while (localIdx >= 0 && cu->localVars[localIdx].scopeDepth >= scopeDepth) {
+        if (cu->localVars[localIdx].isUpvalue) {
+            // 如果局部变量是内层的upvalue就关闭
+            writeByte(cu, OPCODE_CLOSE_UPVALUE);
+        } else {
+            // 否则就弹出该变量回收空间
+            writeByte(cu, OPCODE_POP);
+        }
+        localIdx--;
+    }
+    // 返回丢掉的局部变量的个数
+    return cu->localVarNum-1-localIdx;
 }
 
 // 在模块objModule中定义名为name,值为value的模块变量
@@ -494,7 +466,7 @@ static int findLocal(CompileUnit* cu, const char* name, uint32_t length) {
     // 从内往外查找变量
     int index = cu->localVarNum - 1;
     while (index >= 0) {
-        if (cu->localVars[index].length = length && memcmp(cu->localVars[index].name, name, length)) {
+        if (cu->localVars[index].length == length && memcmp(cu->localVars[index].name, name, length)) {
             return index;
         }
         index--;
@@ -559,20 +531,6 @@ static Variable getVarFromLocalOrUpvalue(CompileUnit* cu, const char* name, uint
     return var;
 }
 
-// 编译程序
-static void compileProgram(CompileUnit* cu) {
-    if (matchToken(cu->curParser, TOKEN_CLASS)) {
-        compileClassDefinition(cu);
-    } else if (matchToken(cu->curParser, TOKEN_FUN)) {
-        compileFunctionDefinition(cu);
-    } else if (matchToken(cu->curParser, TOKEN_VAR)) {
-        compileVarDefinition(cu, cu->curParser->preToken.type == TOKEN_STATIC);
-    } else if (matchToken(cu->curParser, TOKEN_IMPORT)) {
-        compileImport(cu);
-    } else {
-        compileStatement(cu);
-    }
-}
 
 // 声明模块变量,与defineModuleVar的区别是不做重定义检查,默认为声明
 static int declareModuleVar(VM* vm, ObjModule* objModule, const char* name, uint32_t length, Value value) {
@@ -600,33 +558,6 @@ static ClassBookKeep* GetEnclosingClassBK(CompileUnit* cu) {
     return NULL;
 }
 
-// 为实参列表中的各个实参生成加载实参的指令
-static void processArgList(CompileUnit* cu, Signature* sign) {
-    // 由主调放保证参数不为空
-    ASSERT(cu->curParser->curToken.type != TOKEN_RIGHT_PAREN && 
-        cu->curParser->curToken.type != TOKEN_RIGHT_BRACKET, "empty argument list!");
-
-    do {
-        if (++sign->argNum > MAX_ARG_NUM) {
-            COMPILE_ERROR(cu->curParser, "the max number of argment is %d!", MAX_ARG_NUM);
-        }
-        expression(cu, BP_LOWEST);
-    } while(matchToken(cu->curParser, TOKEN_COMMA));
-}
-
-// 声明行参列表中的各个参数
-static void processParaList(CompileUnit* cu, Signature* sign) {
-     ASSERT(cu->curParser->curToken.type != TOKEN_RIGHT_PAREN && 
-        cu->curParser->curToken.type != TOKEN_RIGHT_BRACKET, "empty argument list!");
-    do {
-        if (++sign->argNum > MAX_ARG_NUM) {
-            COMPILE_ERROR(cu->curParser, "the max number of params is %d!", MAX_ARG_NUM);
-        }
-        consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
-        declareVariable(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
-        
-    } while(matchToken(cu->curParser, TOKEN_COMMA));
-}
 
 // sign尝试编译setter
 static bool trySetter(CompileUnit* cu, Signature* sign) {
@@ -684,6 +615,33 @@ static void emitStoreVariable(CompileUnit* cu, Variable var) {
     }
 }
 
+// 定义变量为其赋值
+static void defineVariable(CompileUnit* cu, uint32_t index) {
+   // 局部变量已存储到栈中,无须处理.
+   // 模块变量并不存储到栈中,因此将其写回相应位置
+   if (cu->scopeDepth == -1) {
+      //把栈顶数据存入参数index指定的全局模块变量
+      writeOpCodeShortOperand(cu, OPCODE_STORE_MODULE_VAR, index);
+      writeOpCode(cu, OPCODE_POP);  // 弹出栈顶数据,因为上面OPCODE_STORE_MODULE_VAR已经将其存储了
+   }
+}
+
+//从局部变量,upvalue和模块中查找变量name
+static Variable findVariable(CompileUnit* cu, const char* name, uint32_t length) {
+
+   //先从局部变量和upvalue中查找
+   Variable var = getVarFromLocalOrUpvalue(cu, name, length);
+   if (var.index != -1) return var;
+  
+   //若未找到再从模块变量中查找
+   var.index = getIndexFromSymbolTable(
+	 &cu->curParser->curModule->moduleVarName, name, length);
+   if (var.index != -1) {
+      var.scopeType = VAR_SCOPE_MODULE;
+   }
+   return var;
+}
+
 // 生成加载或存储变量的指令
 static void emitLoadOrStoreVariable(CompileUnit* cu, bool canAssign, Variable var) {
     if (canAssign && matchToken(cu->curParser, TOKEN_ASSIGN)) {
@@ -700,6 +658,7 @@ static void emitLoadThis(CompileUnit* cu) {
     ASSERT(var.scopeType != VAR_SCOPE_INVALID, "get variable failed!");
     emitLoadVariable(cu, var);
 }
+
 
 // 编译代码块
 static void compileBlock(CompileUnit* cu) {
@@ -750,8 +709,36 @@ static ObjFn* endCompileUnit(CompileUnit* cu) {
         }
     }
     // 下调本编译单元,使编译单元指向外层编译单元
-    cu->curParser->curlCompileUnit = cu->enclosingUnit;
+    cu->curParser->curCompileUnit = cu->enclosingUnit;
     return cu->fn;
+}
+
+// 为实参列表中的各个实参生成加载实参的指令
+static void processArgList(CompileUnit* cu, Signature* sign) {
+    // 由主调放保证参数不为空
+    ASSERT(cu->curParser->curToken.type != TOKEN_RIGHT_PAREN && 
+        cu->curParser->curToken.type != TOKEN_RIGHT_BRACKET, "empty argument list!");
+
+    do {
+        if (++sign->argNum > MAX_ARG_NUM) {
+            COMPILE_ERROR(cu->curParser, "the max number of argment is %d!", MAX_ARG_NUM);
+        }
+        expression(cu, BP_LOWEST);
+    } while(matchToken(cu->curParser, TOKEN_COMMA));
+}
+
+// 声明行参列表中的各个参数
+static void processParaList(CompileUnit* cu, Signature* sign) {
+     ASSERT(cu->curParser->curToken.type != TOKEN_RIGHT_PAREN && 
+        cu->curParser->curToken.type != TOKEN_RIGHT_BRACKET, "empty argument list!");
+    do {
+        if (++sign->argNum > MAX_ARG_NUM) {
+            COMPILE_ERROR(cu->curParser, "the max number of params is %d!", MAX_ARG_NUM);
+        }
+        consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
+        declareVariable(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
+        
+    } while(matchToken(cu->curParser, TOKEN_COMMA));
 }
 
 // 生成getter或method调用指令
@@ -868,6 +855,8 @@ static bool isLocalName(const char* name) {
     return (name[0] >= 'a' && name[0] <= 'z');
 }
 
+
+
 // 标识符的nud方法(变量名或方法名)
 static void id(CompileUnit* cu, bool canAssign) {
     // 备份变量名
@@ -922,10 +911,10 @@ static void id(CompileUnit* cu, bool canAssign) {
                 }
                 // 如果正在编译类方法,则直接在该实例对象中加载field
                 if (cu->enclosingUnit != NULL) {
-                    writeOpCodeByteOperand(cu, isRead?OPCODE_LOAD_THIS_FIELD:OPCODE_STORE_THIS_FIELD, fieldIdx);
+                    writeOpCodeByteOperand(cu, isRead ? OPCODE_LOAD_THIS_FIELD : OPCODE_STORE_THIS_FIELD, fieldIdx);
                 } else {
                     emitLoadThis(cu);
-                    writeOpCodeByteOperand(cu, isRead, OPCODE_LOAD_FIELD, fieldIdx);
+                    writeOpCodeByteOperand(cu, OPCODE_LOAD_FIELD, fieldIdx);
                 }
                 return;
             }
@@ -1030,6 +1019,26 @@ static void boolean(CompileUnit* cu, bool canAssign UNUSED) {
     writeOpCode(cu, opCode);
 }
 
+
+
+// 占位符号作为参数设置指令
+static uint32_t emitInstrWithPlaceholder(CompileUnit* cu, OpCode opCode) {
+    writeOpCode(cu, opCode);
+    writeByte(cu, 0xff);
+    return writeByte(cu, 0xff)-1; // -1后返回高位地址,用于回填
+}
+
+// 用当前字节的码结束地址的偏移量去替换占位符oxffff
+static void patchPlaceholder(CompileUnit* cu, uint32_t absIndex) {
+    uint32_t offset = cu->fn->instrStream.count - absIndex - 2;
+    // 先回填高8位
+    cu->fn->instrStream.datas[absIndex] = (offset >> 8) | 0xff;
+    // 低8位
+    cu->fn->instrStream.datas[absIndex+1] = offset & 0xff;
+}
+
+
+
 // "null".nud()
 static void null(CompileUnit* cu, bool canAssign UNUSED) {
     writeOpCode(cu, OPCODE_PUSH_NULL);
@@ -1060,7 +1069,7 @@ static void super(CompileUnit* cu, bool canAssign) {
 }
 
 // "(".nud()
-static parentheses(CompileUnit* cu, bool canAssign UNUSED) {
+static void parentheses(CompileUnit* cu, bool canAssign UNUSED) {
     // curToken 为"("
     expression(cu, BP_LOWEST);
     consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after expression!");
@@ -1142,22 +1151,6 @@ static void mapLiteral(CompileUnit* cu, bool canAssign UNUSED) {
     } while(matchToken(cu->curParser, TOKEN_COMMA));
 }
 
-// 占位符号作为参数设置指令
-static uint32_t emitInstrWithPlaceholder(CompileUnit* cu, OpCode opCode) {
-    writeOpCode(cu, opCode);
-    writeByte(cu, 0xff);
-    return writeByte(cu, 0xff)-1; // -1后返回高位地址,用于回填
-}
-
-// 用当前字节的码结束地址的偏移量去替换占位符oxffff
-static void patchPlaceholder(CompileUnit* cu, uint32_t absIndex) {
-    uint32_t offset = cu->fn->instrStream.count - absIndex - 2;
-    // 先回填高8位
-    cu->fn->instrStream.datas[absIndex] = (offset >> 8) | 0xff;
-    // 低8位
-    cu->fn->instrStream.datas[absIndex+1] = offset & 0xff;
-}
-
 // '||'.led()
 static void logicOr(CompileUnit* cu, bool canAssign UNUSED) {
     // 此时栈顶为||的左操作数
@@ -1214,10 +1207,11 @@ SymbolBindRule Rules[] = {
     UNUSED_RULE,    // TOKEN_COMMA
     PREFIX_SYMBOL(parentheses), // TOKEN_LEFT_PAREN
     UNUSED_RULE,    // TOKEN_RIGHT_PAREN
-    {NULL, BP_CALL, listLiteral},   // TOKEN_LEFT_BRACKET
+    {NULL, BP_CALL, listLiteral, subscript, subscriptMethodSignature},   // TOKEN_LEFT_BRACKET
     UNUSED_RULE,    // TOKEN_RIGHT_BRACKET
     PREFIX_SYMBOL(mapLiteral),  // TOKEN_LEFT_BRACE
     UNUSED_RULE,    // TOKEN_RIGHT_BRACE
+    INFIX_SYMBOL(BP_CALL, callEntry),   // TOKEN_DOT
     INFIX_OPERATOR("..", BP_RANGE), // TOKEN_DOT_DOT
     INFIX_OPERATOR("+", BP_TERM),   // TOKEN_ADD
     MIX_OPERATOR("-"),  // TOKEN_SUB
@@ -1242,6 +1236,42 @@ SymbolBindRule Rules[] = {
     INFIX_SYMBOL(BP_ASSIGN, condition), // TOKEN_QUESTION
     UNUSED_RULE, // TOKEN_EOF
 };
+
+static void expression(CompileUnit* cu, BindPower rbp) {
+    DenotationFn nud = Rules[cu->curParser->curToken.type].nud;
+    // 表达式开头的要么是操作数,要么是前缀运算符,必然存在nud方法
+    ASSERT(nud != NULL, "nud is NULL!");
+    getNextToken(cu->curParser);
+    bool canAssign = rbp < BP_ASSIGN;
+    nud(cu, canAssign);
+    while (rbp < Rules[cu->curParser->curToken.type].lbp) {
+        DenotationFn led = Rules[cu->curParser->curToken.type].led;
+        getNextToken(cu->curParser);
+        led(cu, canAssign);
+    }
+}
+
+// 中缀运算符.led方法
+static void infixOperator(CompileUnit* cu, bool canAssign UNUSED) {
+    SymbolBindRule* rule = &Rules[cu->curParser->preToken.type];
+    // 左右操作数绑定权值一样
+    BindPower rbp = rule->lbp;
+    expression(cu, rbp); // 解析右操作数
+
+    // 生成一个参数的签名
+    Signature sign = {SIGN_METHOD, rule->id, strlen(rule->id), 1};
+    emitCallBySignature(cu, &sign, OPCODE_CALL0);
+}
+
+// 前缀运算符.nud方法,如-, !等
+static void unaryOperator(CompileUnit* cu, bool canAssign UNUSED) {
+    SymbolBindRule* rule = &Rules[cu->curParser->preToken.type];
+    // BP_UNARY 作为rbp去调用express解析右操作数
+    expression(cu, BP_UNARY);
+    // 生成调用前缀运算符的指令
+    // 0 个参数,前缀运算符都是1个字符,长度是1
+    emitCall(cu, 0, rule->id, 1);
+}
 
 // 编译变量定义
 static void compileVarDefinition(CompileUnit* cu, bool isStatic) {
@@ -1270,7 +1300,7 @@ static void compileVarDefinition(CompileUnit* cu, bool isStatic) {
             memmove(staticFieldId+4+clsLen, tkName, tkLen);
             staticFieldIdLen = strlen(staticFieldId);
             if (findLocal(cu, staticFieldId, staticFieldIdLen) == -1) {
-                int index = declareLocalVar(cu, staticFieldIdLen, staticFieldIdLen);
+                int index = declareLocalVar(cu, staticFieldId, staticFieldIdLen);
                 // 默认值null
                 writeOpCode(cu, OPCODE_PUSH_NULL);
                 ASSERT(cu->scopeDepth == 0, "should in class scope!");
@@ -1316,107 +1346,34 @@ static void compileVarDefinition(CompileUnit* cu, bool isStatic) {
     defineVariable(cu, index);
 }
 
-static void compileIfStatement(CompileUnit* cu) {
+static void compileIfStatment(CompileUnit* cu) {
     consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "missing '(' after if!");
     expression(cu, BP_LOWEST);
     consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "missing ')' before '}' in if!");
     uint32_t falseBranchStart = emitInstrWithPlaceholder(cu, OPCODE_JUMP_IF_FALSE);
     // 编译then分支
-    // 代码前后的{}由compileStatement读取
-    compileStatement(cu);
+    // 代码前后的{}由compileStatment读取
+    compileStatment(cu);
     if (matchToken(cu->curParser, TOKEN_ELSE)) {
         uint32_t falseBranchEnd = emitInstrWithPlaceholder(cu, OPCODE_JUMP);
         patchPlaceholder(cu, falseBranchStart);
-        compileStatement(cu);
+        compileStatment(cu);
         patchPlaceholder(cu, falseBranchEnd);
     } else {
         patchPlaceholder(cu, falseBranchStart);
     }
 }
 
-// 编译语句(与声明,定义无关的,表示动作的代码)
-static void compileStatement(CompileUnit* cu) {
-    if (matchToken(cu->curParser, TOKEN_IF)) {
-        compileIfStatement(cu);
-    } else if (matchToken(cu->curParser, TOKEN_WHILE)) {
-        compileWhileStatement(cu);
-    } else if (matchToken(cu->curParser, TOKEN_FOR)) {
-        compileForStatement(cu);
-    } else if (matchToken(cu->curParser, TOKEN_RETURN)) {
-        compileReturn(cu);
-    } else if (matchToken(cu->curParser, TOKEN_BREAK)) {
-        compileBreak(cu);
-    } else if (matchToken(cu->curParser, TOKEN_CONTINUE)) {
-        compileContinue(cu);
-    } else if (matchToken(cu->curParser, TOKEN_LEFT_BRACE)) {
-        // 代码块有单独的作用域
-        enterScope(cu);
-        compileBlock(cu);
-        leaveScope(cu);
-    } else {
-        expression(cu, BP_LOWEST);
-        writeOpCode(cu, OPCODE_POP);
+// 编译continue
+inline static void compileContinue(CompileUnit* cu) {
+    if (cu->curLoop == NULL) {
+        COMPILE_ERROR(cu->curParser, "continue should be used inside a loop!");
     }
-}
-
-// 进入循环体时的相关设置
-static void enterLoopSetting(CompileUnit* cu, Loop* loop) {
-    loop->condStartIndex = cu->fn->instrStream.count - 1;
-    loop->scopeDepth = cu->scopeDepth;
-    // 在当前循环中嵌套新的循环层
-    loop->enclosingLoop = cu->curLoop;
-    cu->curLoop = loop;
-}
-
-// 离开循环体时的相关设置
-static void leaveLoopPatch(CompileUnit* cu) {
-    // 2是指两个字节的操作数
-    int loopBackOffset = cu->fn->instrStream.count - cu->curLoop->condStartIndex + 2;
-    // 生成向回跳转的CODE_LOOP指令,即使ip -= loopBackOffset
+    // 不能在cu->localVars中删除,否则在continue语句后面若引用前面的变量则提示找不到
+    discardLocalVar(cu, cu->curLoop->scopeDepth+1);
+    int loopBackOffset = cu->fn->instrStream.count - cu->curLoop->condStartIndex+2;
+    // 向回跳转的
     writeOpCodeShortOperand(cu, OPCODE_LOOP, loopBackOffset);
-    // 回填循环体的结束地址
-    patchPlaceholder(cu, cu->curLoop->exitIndex);
-    // 下面在循环体中回填break的占位符OPCODE_END
-    // 循环体开始地址
-    uint32_t idx = cu->curLoop->bodyStartIndex;
-    // 循环体结束地址
-    uint32_t loopEndIndex = cu->fn->instrStream.count;
-    while (idx < loopEndIndex) {
-        // 回填循环体中所有可能的break语句
-        if (OPCODE_END == cu->fn->instrStream.datas[idx]) {
-            cu->fn->instrStream.datas[idx] = OPCODE_JUMP;
-            // 回填OPCODE_JUMP的操作数,即跳转偏移量
-            patchPlaceholder(cu, idx+1);
-            // 使idx指向指令流中下一个操作码
-            idx += 3;
-        } else {
-            idx += 1 + getBytesOfOperands(cu->fn->instrStream.datas, cu->fn->constants.datas, idx);
-        }
-    }
-    // 退出当前循环体
-    cu->curLoop = cu->curLoop->enclosingLoop;
-}
-
-// 比那以while循环,如while(a<b){循环体}
-static void compileWhileStatement(CompileUnit* cu) {
-    Loop loop;
-    // 设置循环体起始地址
-    enterLoopSetting(cu, &loop);
-    consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "expect '(' befor condition!");
-    expression(cu, BP_LOWEST);
-    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after condition!");
-    // 先把条件失败时跳转的目标地址占位
-    loop.exitIndex = emitInstrWithPlaceholder(cu, OPCODE_JUMP_IF_FALSE);
-    compileLoopBody(cu);
-    // 设置循环体结束等等
-    leaveLoopPatch(cu);
-}
-
-
-// 编译循环体
-uint32_t compileLoopBody(CompileUnit* cu) {
-    cu->curLoop->bodyStartIndex = cu->fn->instrStream.count;
-    compileStatement(cu);
 }
 
 // 获得ip所指向的操作码的操作数占用的字节
@@ -1466,7 +1423,7 @@ uint32_t getBytesOfOperands(Byte* instrStream, Value* constants, int ip) {
     case OPCODE_AND:
     case OPCODE_OR:
     case OPCODE_INSTANCE_METHOD:
-    case OPCODE_STATIC_MEHOD:
+    case OPCODE_STATIC_METHOD:
         return 2;
     case OPCODE_SUPER0:
     case OPCODE_SUPER1:
@@ -1501,37 +1458,42 @@ uint32_t getBytesOfOperands(Byte* instrStream, Value* constants, int ip) {
     }
 }
 
-// 编译return
-inline static void compileReturn(CompileUnit* cu) {
-    if (PEEK_TOKEN(cu->curParser) == TOKEN_RIGHT_BRACE) {
-        writeOpCode(cu, OPCODE_PUSH_NULL);
-    } else {
-        expression(cu, BP_LOWEST);
-    }
-    writeOpCode(cu, OPCODE_RETURN); // 返回栈顶的值
+// 进入循环体时的相关设置
+static void enterLoopSetting(CompileUnit* cu, Loop* loop) {
+    loop->condStartIndex = cu->fn->instrStream.count - 1;
+    loop->scopeDepth = cu->scopeDepth;
+    // 在当前循环中嵌套新的循环层
+    loop->enclosingLoop = cu->curLoop;
+    cu->curLoop = loop;
 }
 
-// 编译break
-inline static void compileBreak(CompileUnit* cu) {
-    if (cu->curLoop == NULL) {
-        COMPILE_ERROR(cu->curParser, "break should be used inside a loop!");
-    }
-    // 退出循环体之前丢弃其局部变量
-    discardLocalVar(cu, cu->curLoop->scopeDepth+1);
-    // 由于用OPCODE_END表示break占位,此时无需记录占位符的返回地址
-    emitInstrWithPlaceholder(cu, OPCODE_END);
-}
-
-// 编译continue
-inline static void compileContinue(CompileUnit* cu) {
-    if (cu->curLoop == NULL) {
-        COMPILE_ERROR(cu->curParser, "continue should be used inside a loop!");
-    }
-    // 不能在cu->localVars中删除,否则在continue语句后面若引用前面的变量则提示找不到
-    discardLocalVar(cu, cu->curLoop->scopeDepth+1);
-    int loopBackOffset = cu->fn->instrStream.count - cu->curLoop->condStartIndex+2;
-    // 向回跳转的
+// 离开循环体时的相关设置
+static void leaveLoopPatch(CompileUnit* cu) {
+    // 2是指两个字节的操作数
+    int loopBackOffset = cu->fn->instrStream.count - cu->curLoop->condStartIndex + 2;
+    // 生成向回跳转的CODE_LOOP指令,即使ip -= loopBackOffset
     writeOpCodeShortOperand(cu, OPCODE_LOOP, loopBackOffset);
+    // 回填循环体的结束地址
+    patchPlaceholder(cu, cu->curLoop->exitIndex);
+    // 下面在循环体中回填break的占位符OPCODE_END
+    // 循环体开始地址
+    uint32_t idx = cu->curLoop->bodyStartIndex;
+    // 循环体结束地址
+    uint32_t loopEndIndex = cu->fn->instrStream.count;
+    while (idx < loopEndIndex) {
+        // 回填循环体中所有可能的break语句
+        if (OPCODE_END == cu->fn->instrStream.datas[idx]) {
+            cu->fn->instrStream.datas[idx] = OPCODE_JUMP;
+            // 回填OPCODE_JUMP的操作数,即跳转偏移量
+            patchPlaceholder(cu, idx+1);
+            // 使idx指向指令流中下一个操作码
+            idx += 3;
+        } else {
+            idx += 1 + getBytesOfOperands(cu->fn->instrStream.datas, cu->fn->constants.datas, idx);
+        }
+    }
+    // 退出当前循环体
+    cu->curLoop = cu->curLoop->enclosingLoop;
 }
 
 // 进入作用域
@@ -1549,6 +1511,27 @@ static void leaveScope(CompileUnit* cu) {
     }
     // 回到上一层作用域
     cu->scopeDepth--;
+}
+
+// 编译循环体
+static void compileLoopBody(CompileUnit* cu) {
+    cu->curLoop->bodyStartIndex = cu->fn->instrStream.count;
+    compileStatment(cu);
+}
+
+// 比那以while循环,如while(a<b){循环体}
+static void compileWhileStatement(CompileUnit* cu) {
+    Loop loop;
+    // 设置循环体起始地址
+    enterLoopSetting(cu, &loop);
+    consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "expect '(' befor condition!");
+    expression(cu, BP_LOWEST);
+    consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after condition!");
+    // 先把条件失败时跳转的目标地址占位
+    loop.exitIndex = emitInstrWithPlaceholder(cu, OPCODE_JUMP_IF_FALSE);
+    compileLoopBody(cu);
+    // 设置循环体结束等等
+    leaveLoopPatch(cu);
 }
 
 // 编译for循环,如 for i (sequence) {循环体}
@@ -1610,6 +1593,53 @@ static void compileForStatement(CompileUnit* cu) {
     leaveScope(cu); // 离开变量seq和iter的作用域
 }
 
+// 编译return
+inline static void compileReturn(CompileUnit* cu) {
+    if (PEEK_TOKEN(cu->curParser) == TOKEN_RIGHT_BRACE) {
+        writeOpCode(cu, OPCODE_PUSH_NULL);
+    } else {
+        expression(cu, BP_LOWEST);
+    }
+    writeOpCode(cu, OPCODE_RETURN); // 返回栈顶的值
+}
+
+// 编译break
+inline static void compileBreak(CompileUnit* cu) {
+    if (cu->curLoop == NULL) {
+        COMPILE_ERROR(cu->curParser, "break should be used inside a loop!");
+    }
+    // 退出循环体之前丢弃其局部变量
+    discardLocalVar(cu, cu->curLoop->scopeDepth+1);
+    // 由于用OPCODE_END表示break占位,此时无需记录占位符的返回地址
+    emitInstrWithPlaceholder(cu, OPCODE_END);
+}
+
+
+// 编译语句(与声明,定义无关的,表示动作的代码)
+static void compileStatment(CompileUnit* cu) {
+    if (matchToken(cu->curParser, TOKEN_IF)) {
+        compileIfStatment(cu);
+    } else if (matchToken(cu->curParser, TOKEN_WHILE)) {
+        compileWhileStatement(cu);
+    } else if (matchToken(cu->curParser, TOKEN_FOR)) {
+        compileForStatement(cu);
+    } else if (matchToken(cu->curParser, TOKEN_RETURN)) {
+        compileReturn(cu);
+    } else if (matchToken(cu->curParser, TOKEN_BREAK)) {
+        compileBreak(cu);
+    } else if (matchToken(cu->curParser, TOKEN_CONTINUE)) {
+        compileContinue(cu);
+    } else if (matchToken(cu->curParser, TOKEN_LEFT_BRACE)) {
+        // 代码块有单独的作用域
+        enterScope(cu);
+        compileBlock(cu);
+        leaveScope(cu);
+    } else {
+        expression(cu, BP_LOWEST);
+        writeOpCode(cu, OPCODE_POP);
+    }
+}
+
 // 生成模块变量存储指令
 static void emitStoreModuleVar(CompileUnit* cu, int index) {
     // 把栈顶数据存储到moduleVarIndex
@@ -1640,7 +1670,7 @@ static void defineMethod(CompileUnit* cu, Variable classVar, bool isStatic, int 
     // 2. 将方法所属的类加载到栈顶
     emitLoadVariable(cu, classVar);
     // 3. 在运行时绑定
-    OpCode opCode = isStatic ? OPCODE_STATIC_MEHOD : OPCODE_INSTANCE_METHOD;
+    OpCode opCode = isStatic ? OPCODE_STATIC_METHOD : OPCODE_INSTANCE_METHOD;
     writeOpCodeShortOperand(cu, opCode, methodIndex);
 }
 
@@ -1701,7 +1731,7 @@ endCompileUnit(&methodCU);
     if (sign.type == SIGN_CONSTRUCT) {
         sign.type = SIGN_METHOD;
         char signatureString[MAX_SIGN_LEN] = {'\0'};
-        uint32_t constructIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signatureString);
+        uint32_t constructIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signatureString, signLen);
         emitCreateInstance(cu, &sign, methodIndex);
         // 构造函数是静态方法,即类方法
         defineMethod(cu, classVar, true, constructIndex);
@@ -1865,6 +1895,21 @@ static void compileImport(CompileUnit* cu) {
     } while(matchToken(cu->curParser, TOKEN_COMMA));
 }
 
+// 编译程序
+static void compileProgram(CompileUnit* cu) {
+    if (matchToken(cu->curParser, TOKEN_CLASS)) {
+        compileClassDefinition(cu);
+    } else if (matchToken(cu->curParser, TOKEN_FUN)) {
+        compileFunctionDefinition(cu);
+    } else if (matchToken(cu->curParser, TOKEN_VAR)) {
+        compileVarDefinition(cu, cu->curParser->preToken.type == TOKEN_STATIC);
+    } else if (matchToken(cu->curParser, TOKEN_IMPORT)) {
+        compileImport(cu);
+    } else {
+        compileStatment(cu);
+    }
+}
+
 // 编译模块
 ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
     // 各源码模块文件需要单独的parser
@@ -1897,7 +1942,7 @@ ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
         if (VALUE_IS_NUM(objModule->moduleVarValue.datas[idx])) {
             char* str = objModule->moduleVarName.datas[idx].str;
             ASSERT(str[objModule->moduleVarName.datas[idx].length] == '\0', "module var name is not closed!");
-            uint32_t lineNo = VALUE_TO_NUM(objModule->moduleVarName.datas[idx]);
+            uint32_t lineNo = VALUE_TO_NUM(objModule->moduleVarValue.datas[idx]);
             COMPILE_ERROR(&parser, "line:%d, variable '%s' not defined!", lineNo, str);
         }
         idx++;

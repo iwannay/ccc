@@ -1,8 +1,6 @@
 #ifndef _OBJECT_HEADER_H
 #define _OBJECT_HEADER_H
 #include "utils.h"
-#include "class.h"
-#include "common.h"
 
 typedef enum {
     OT_CLASS, // 此项时class类型，以下都是object类型

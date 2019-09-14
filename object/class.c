@@ -4,9 +4,8 @@
 #include "obj_range.h"
 #include "core.h"
 #include "vm.h"
-#include "compiler.h"
 
-DEFINE_BUFFER_METHOD(Method);
+DEFINE_BUFFER_METHOD(Method)
 
 // 判断a和b是否相等
 bool valueIsEqual(Value a, Value b) {
@@ -82,6 +81,8 @@ Class* newClass(VM* vm, ObjString* className, uint32_t fieldNum, Class* superCla
     Class* class = newRawClass(vm, newClassName, fieldNum);
     class->objHeader.class = metaClass;
     bindSuperClass(vm, class, superClass);
+
+    return class;
 }
 
 // 数字等Value也被视为对象，因此参数为Value。获得对象obj所属的类

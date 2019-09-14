@@ -1,11 +1,10 @@
 #ifndef _VM_VM_H
 #define _VM_VM_H
 #include "common.h"
-#include "header_obj.h"
-#include "meta_obj.h"
-#include "utils.h"
+#include "class.h"
 #include "obj_map.h"
 #include "obj_thread.h"
+#include "parser.h"
 
 #define OPCODE_SLOTS(opcode, effect) OPCODE_##opcode,
 typedef enum {
@@ -40,5 +39,6 @@ struct vm {
 
 void initVM(VM* vm);
 VMResult executeInstruction(VM* vm, register ObjThread* curThread);
+void ensureStack(VM* vm, ObjThread* objThread, uint32_t neededSots);
 VM* newVM(void);
 #endif

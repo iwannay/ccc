@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "class.h"
 
 typedef struct vm VM;
 typedef struct parser Parser;

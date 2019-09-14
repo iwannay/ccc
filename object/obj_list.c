@@ -13,7 +13,7 @@ ObjList* newObjList(VM* vm, uint32_t elementNum) {
 
     objList->elements.datas = elementArray;
     objList->elements.capacity = objList->elements.count = elementNum;
-    initObjHeader(vm, &objList->objHeader, QT_LIST, vm->listClass);
+    initObjHeader(vm, &objList->objHeader, OT_LIST, vm->listClass);
     return objList;
 }
 

@@ -3,6 +3,7 @@
 #include "common.h"
 #include "vm.h"
 #include "meta_obj.h"
+#include "compiler.h"
 
 typedef enum {
     TOKEN_UNKNOWN,

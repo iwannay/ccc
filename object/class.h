@@ -10,7 +10,7 @@ typedef enum {
     MT_NONE, // 空方法类型，并不等同于undefined
     MT_PRIMITIVE, // 在vm中用c实现的原生方法
     MT_SCRIPT, // 脚本中定义的方法
-    MT_FN_CALL, // 有关函数对象的调用方法，已嗯来实现函数的重载
+    MT_FN_CALL // 有关函数对象的调用方法，已嗯来实现函数的重载
 } MethodType; // 方法类型
 
 #define VT_TO_VALUE(vt) ((Value){vt, {0}})
@@ -43,8 +43,8 @@ typedef enum {
 #define VALUE_IS_NULL(value) ((value).type == VT_NULL)
 #define VALUE_IS_TRUE(value) ((value).type == VT_TRUE)
 #define VALUE_IS_FALSE(value) ((value).type == VT_FALSE)
-#define VALUE_IS_NUM(false) ((value).type == VT_NUM)
-#define VALUE_IS_OBJ(false) ((value).type == VT_OBJ)
+#define VALUE_IS_NUM(value) ((value).type == VT_NUM)
+#define VALUE_IS_OBJ(value) ((value).type == VT_OBJ)
 #define VALUE_IS_CERTAIN_OBJ(value, objType) (VALUE_IS_OBJ(value) && VALUE_TO_OBJ(value)->type == objType)
 #define VALUE_IS_OBJSTR(value) (VALUE_IS_CERTAIN_OBJ(value, OT_STRING))
 #define VALUE_IS_OBJINSTANCE(value) (VALUE_IS_CERTAIN_OBJ(value, OT_INSTANCE))
@@ -82,6 +82,9 @@ typedef union {
     uint32_t bits32[2];
     double num;
 } Bits64;
+
+bool valueIsEqual(Value a, Value b);
+Class* newRawClass(VM* vm, const char* name, uint32_t fieldNum);
 
 #define CAPACITY_GROW_FACTOR 4
 #define MIN_CAPACITY 64

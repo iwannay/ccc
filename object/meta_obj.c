@@ -1,6 +1,6 @@
 #include "obj_fn.h"
-#include "class.h"
 #include "vm.h"
+#include "header_obj.h"
 #include <string.h>
 
 // 新建模块

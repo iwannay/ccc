@@ -3,6 +3,7 @@
 #include <utils.h>
 #include "core.h"
 #include "compiler.h"
+
 // 确保stack有效
 void ensureStack(VM* vm, ObjThread* objThread, uint32_t neededSots) {
     if (objThread->stackCapacity >= neededSots) {
@@ -180,7 +181,7 @@ static void patchOperand(Class* class, ObjFn* fn) {
 
 // 绑定方法和修正操作数
 static void bindMethodAndPatch(VM* vm, OpCode opCode, uint32_t methodIndex, Class* class, Value methodValue) {
-    if (opCode == OPCODE_STATIC_MEHOD) {
+    if (opCode == OPCODE_STATIC_METHOD) {
         class = class->objHeader.class;
     }
     Method method;
@@ -212,29 +213,30 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
     #define STORE_CUR_FRAME() curFrame->ip = ip // 备份ip以便返回
 
     // 加载最新的frame
-    #define LOAD_CUR_FRAME() \
-        curFrame = &curThread->frames[curThread->usedFrameNum-1];   \
-        stackStart = curFrame->stackStart;  \
-        ip = curFrame->ip;  \
-        fn = curFrame->closure->fn
-    #define DECODE loopStart:   \
-        opCode = READ_BYTE();   \
+    #define LOAD_CUR_FRAME()\
+        curFrame = &curThread->frames[curThread->usedFrameNum-1];\
+        stackStart = curFrame->stackStart;\
+        ip = curFrame->ip;\
+        fn = curFrame->closure->fn;
+    
+    #define DECODE loopStart:\
+        opCode = READ_BYTE();\
         switch (opCode)
     #define CASE(shortOpCode) case OPCODE_##shortOpCode
     #define LOOP() goto loopStart
 
     LOAD_CUR_FRAME();
     DECODE {
-        case(LOAD_LOCAL_VAR):
+        CASE(LOAD_LOCAL_VAR):
             PUSH(stackStart[READ_BYTE()]);
             LOOP();
         CASE(LOAD_THIS_FIELD):{
             uint8_t fieldIdx = READ_BYTE();
             // stackStart[0]是实例对象this
             ASSERT(VALUE_IS_OBJINSTANCE(stackStart[0]), "method receiver should be objInstance!");
-            ObjInstance* ObjInstance = VALUE_TO_OBJINSTANCE(stackStart[0]);
+            ObjInstance* objInstance = VALUE_TO_OBJINSTANCE(stackStart[0]);
             ASSERT(fieldIdx < ObjInstance->objHeader.class->fieldNum, "out of bounds field!");
-            PUSH(ObjInstance->fields[fieldIdx]);
+            PUSH(objInstance->fields[fieldIdx]);
             LOOP();
         }
         CASE(POP):
@@ -314,7 +316,7 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
                 args = curThread->esp-argNum;
                 class = VALUE_TO_CLASS(fn->constants.datas[READ_SHORT()]);
             invokeMethod:
-                if ((uint32_t)index > class->methods.count || (method = &class->methods[index])->type == MT_NONE) {
+                if ((uint32_t)index > class->methods.count || (method = &class->methods.datas[index])->type == MT_NONE) {
                     RUN_ERROR("method '%s' not found!", vm->allMethodNames.datas[index].str);
                 }
                 switch (method->type) {
@@ -352,17 +354,19 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
                         STORE_CUR_FRAME();
                         createFrame(vm, curThread, (ObjClosure*)method->obj, argNum);
                         LOAD_CUR_FRAME();
+                        break;
                     case MT_FN_CALL:
                         ASSERT(VALUE_IS_OBJCLOSURE(args[0]), "instance must be a closure!");
-                        ObjFn* objFn = VALUE_TO_OBJCLOSURE(args[0]->fn);
+                        ObjFn* objFn = VALUE_TO_OBJCLOSURE(args[0])->fn;
                         
                         if (argNum - 1 < objFn->argNum) {
                             RUN_ERROR("arguments less");
                         }
                         STORE_CUR_FRAME();
-                        createFrame(vm, curThread, VALUE_TO_OBJCLOSURE(args[0], argNum));
+                        createFrame(vm, curThread, VALUE_TO_OBJCLOSURE(args[0]), argNum);
                         LOAD_CUR_FRAME();
                         break;
+                    
                     default:
                         NOT_REACHED();
                 }
@@ -399,9 +403,9 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             uint8_t fieldIdx = READ_BYTE(); // field index
             Value receiver = POP();
             ASSERT(VALUE_IS_OBJINSTANCE(receiver), "receiver should be instance!");
-            ObjInstance* ObjInstance = VALUE_TO_OBJINSTANCE(receiver);
-            ASSERT(fieldIdx < ObjInstance->objHeader.class->fieldNum, "out of bounds field!");
-            PUSH(ObjInstance->fields[fieldIdx]);
+            ObjInstance* objInstance = VALUE_TO_OBJINSTANCE(receiver);
+            ASSERT(fieldIdx < objInstance->objHeader.class->fieldNum, "out of bounds field!");
+            PUSH(objInstance->fields[fieldIdx]);
             LOOP();
         }
         CASE(STORE_FIELD):{
@@ -410,9 +414,9 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             uint8_t fieldIdx = READ_BYTE();
             Value receiver = POP();
             ASSERT(VALUE_IS_OBJINSTANCE(receiver), "receiver should be instance!");
-            ObjInstance* ObjInstance = VALUE_TO_OBJINSTANCE(receiver);
+            ObjInstance* objInstance = VALUE_TO_OBJINSTANCE(receiver);
             ASSERT(fieldIdx < ObjInstance->objHeader.class->fieldNum, "out of bounds field!");
-            ObjInstance->fields[fieldIdx] = PEEK();
+            objInstance->fields[fieldIdx] = PEEK();
             LOOP();
         }
         CASE(JUMP): {
@@ -502,9 +506,9 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
                 stackStart[0] = retVal;
                 // 回收堆栈：保留出结果所在的slot即stackStart[0], 其他全部丢弃
                 curThread->esp = stackStart+1;
-                LOAD_CUR_FRAME();
-                LOOP();
             }
+            LOAD_CUR_FRAME();
+            LOOP();
         }
         CASE(CONSTRUCT):{
             // 栈底：stackStart[0]是class
@@ -561,7 +565,7 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             bindMethodAndPatch(vm, opCode, methodnameIdx, class, method);
             DROP();
             DROP();
-            DROP();
+            LOOP();
         }
         CASE(END):
             NOT_REACHED();

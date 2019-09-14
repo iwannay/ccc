@@ -35,7 +35,7 @@ ObjThread* newObjThread(VM* vm, ObjClosure* objClosure) {
 
     // 加1是为接收者的slot
     uint32_t stackCapacity = ceilToPowerOf2(objClosure->fn->maxStackSlotUsedNum + 1);
-    Value* newStack = ALLOCATE_ARRAY(vm, OT_THREAD, vm->threadClass);
+    Value* newStack = ALLOCATE_ARRAY(vm, Value, stackCapacity);
 
     ObjThread* objThread = ALLOCATE(vm, ObjThread);
     initObjHeader(vm, &objThread->objHeader, OT_THREAD, vm->threadClass);

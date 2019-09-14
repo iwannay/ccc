@@ -30,16 +30,16 @@ typedef struct {
 } CharValue; // 字符串缓冲区
 
 // 声明buffer
-#define DECLARE_BUFFER_TYPE(type) \
+#define DECLARE_BUFFER_TYPE(type)\
     typedef struct {\
         /* 数据缓冲区 */ \
         type* datas;\
         /* 缓冲区已使用的元素个数 */ \
-        uint32_t count; \
+        uint32_t count;\
         /* 缓冲区容量用 */\
         uint32_t capacity;\
     } type##Buffer;\
-    void type##BufferInit(type##Buffer* buf); \
+    void type##BufferInit(type##Buffer* buf);\
     void type##BufferFillWrite(VM* vm, type##Buffer* buf, type data, uint32_t fillCount); \
     void type##BufferAdd(VM* vm, type##Buffer* buf, type data); \
     void type##BufferClear(VM* vm, type##Buffer* buf);
@@ -77,8 +77,9 @@ typedef struct {
         type##BufferInit(buf);\
     }
 
-DECLARE_BUFFER_TYPE(String)
 #define SymbolTable StringBuffer
+
+DECLARE_BUFFER_TYPE(String)
 typedef uint8_t Byte;
 typedef char Char;
 typedef int Int;
