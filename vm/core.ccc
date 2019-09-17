@@ -1,0 +1,264 @@
+Class Null {}
+Class Bool {}
+Class Num {}
+Class Fn {}
+Class Thread {}
+
+Class Sequence {
+   all(f) {
+       var result = true
+       for element (this) {
+           result = f.call(element)
+           if (!result) return result
+       }
+       return result
+   }
+   any(f) {
+        var result = false
+        for element = (this) {
+            result = f.call(element)
+            if (result) return result
+        }
+        return result
+    }
+    contains(element) {
+        for item (this) if (element == item) return true
+        return false
+    }
+    count {
+        var result = 0
+        for element (this) result = result + 1
+        return result
+    }
+    count(f) {
+        var result = 0
+        for element (this) if (f.call(element)) result = result + 1
+        return result
+    }
+    each(f) {
+        for element (this) f.call(element)
+    }
+    isEmpty {
+        return iterate(null) ? false : true
+    }
+    map(transformation) {
+        return MapSequence.new(this, transformation)
+    }
+    where(predicate) {
+        return WhereSequence.new(this.predicate)
+    }
+    reduce(acc, f) {
+        for element (this) acc = f.call(acc, element)
+        return acc
+    }
+    reduce(f) {
+        var iter = iterate(null)
+        if (!iter) Thread.abort(\"Can't reduce an empty sequence.\")
+        var result = iteratorValue(iter)
+        while (iter = iterate(iter)) result = f.call(result, iteratorValue(iter))
+        return result
+    }
+    join(seq) {
+        var first = true
+        var result = \"\"
+        for element (this) {
+            if (!first) result = result + seq
+            first = false
+            result = result + element.toString
+        }
+        return result
+    }
+    join() {
+        return join(\"\")
+    }
+    toList {
+        var result = List.new()
+        for element (this) result.add(element)
+        return result
+    }
+}
+
+class MapSequence < Sequence {
+    var sequence
+    var fn
+    new(seq, f) {
+        sequence = seq
+        fn = f
+    }
+    iterate(iterator) {
+        return sequence.iterate(iterator)
+    }
+    iteratorValue(iterator) {
+        return fn.call(sequence.iteratorValue(iterator))
+    }
+}
+
+class WhereSequence < Sequence {
+    var sequence
+    var fn
+    new(seq, f) {
+        sequence = seq
+        fn = f
+    }
+    iterate(iterator) {
+        while (iterator = sequence.iterate(itreator))
+            if (fn.call(sequence.iteratorValue(iterator))) break;
+        return iterator
+    }
+    iteratorValue(iterator) {
+        return sequence.iteratorValue(iterator)
+    }
+}
+
+class String < Sequence {
+    bytes {
+        return StringByteSequence.new(this)
+    }
+    codePoints {
+        return StringCodePointSequence.new(this)
+    }
+    *(count) {
+        if (!(count is num) || !count.isInteger || count < 0)
+            Thread.abort(\"Count must be a non-negative integer.\")
+        var result = \"\"
+        for i (0..(count - 1)) result = result + this
+        return result
+    }
+}
+
+class StringByteSequence < Sequence {
+    var string
+    new(str) {
+        string = str
+    }
+    [index] {
+        return string.byteAt_(index)
+    }
+    iterate(iterator) {
+        return string.iterateByte_(iterator)
+    }
+    iteratorValue(iterator) {
+        return string.byteAt_(iterator)
+    }
+    count {
+        return string.byteCount_
+    }
+}
+
+class StringCodePointSequence < Sequence {
+    var string
+    new(str) {
+        string = str
+    }
+    [index] {
+        return string.codePointAt_(index)
+    }
+    iterate(iterator) {
+        return string.iterate(iterator)
+    }
+    iteratorValue(iterator) {
+        return string.codePointAt_(iterator)
+    }
+    count {
+        return string.count
+    }
+}
+
+class List < Sequence {
+    addAll(other) {
+        for element (other) add(element)
+        return other
+    }
+    toString {
+        return \"[%(join(\",\"))]\"
+    }
+    +(other) {
+        var result = this[0..-1]
+        for element (other) result.add(element)
+        return result
+    }
+    *(count) {
+        if ((!count is num) || !count.isInteger || count < 0)
+            Thread.abort(\"Count must be a non-negative integer.\")
+        var result = []
+        for i (0..(count-1)) result.addAll(this)
+        return result
+    }
+}
+
+class Map {
+    keys {
+        return MapKeySequence.new(this)
+    }
+    values {
+        return MapValueSequence.new(this)
+    }
+    toString {
+        var first = true
+        var result = \"{\"
+        for key (keys) {
+            if (!first) result = result + \",\"
+            first = false
+            result = result + \"%(key): %(this[key])\"
+        }
+        return result + \"}\"
+    }
+}
+
+class MapKeySequence < Sequence {
+    var map
+    new(mp) {
+        map = mp
+    }
+    iterate(n) {
+        return map.iterate_(n)
+    }
+    iteratorValue(iterator) {
+        return map.keyIteratorValue_(iterator)
+    }
+}
+
+class MapValueSequence < Sequence {
+    var map
+    new(mp) {
+        map = mp
+    }
+    iterate(n) {
+        return map.iterate_(n)
+    }
+    iteratorValue(iterator) {
+        return map.valueIteratorValue_(iterator)
+    }
+}
+
+class Range < Sequence {}
+
+class System {
+    static print() {
+        writeString_(\"\n\")
+    }
+    static print(obj) {
+        writeObject_(obj)
+        writeString_(\"\n\")
+        return obj
+    }
+    static printAll(sequence) {
+        for object (sequence) writeObject_(object)
+        writeString_(\"\n\")
+    }
+    static write(obj) {
+        writeObject_(obj)
+        return obj
+    }
+    static writeAll(sequence) {
+        for object (sequence) writeObject_(object)
+    }
+    static writeObject_(obj) {
+        var str = obj.toString
+        if (str is String) {
+            writeString_(str)
+        } else {
+            writeString_(\"[invalid toString]\")
+        }
+    }
+}
