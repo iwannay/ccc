@@ -13,9 +13,8 @@ static void runFile(const char* path) {
         root[lastSlash - path + 1] = '\0';
         rootDir = root;
     }
-
-    VM* vm = newVM();
     printf("There is something to do...\n");exit(0);
+    VM* vm = newVM(); 
     const char* sourceCode = readFile(path);
 
     // struct parser parser;
@@ -37,8 +36,9 @@ static void runFile(const char* path) {
 
 int main(int argc, const char** argv) {
     if (argc == 1) {
-        ;
+         printf("nothing to do!\n");
     } else {
+       
         runFile(argv[1]);
     }
 

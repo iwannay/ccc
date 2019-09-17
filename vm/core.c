@@ -21,7 +21,7 @@ char* rootDir  = NULL; // 根目录
     do {\
         args[0] = value;\
         return true;\
-    } while(0);
+    } while(0)
 
 #define RET_OBJ(objPtr) RET_VALUE(OBJ_TO_VALUE(objPtr))
 
@@ -51,6 +51,127 @@ char* rootDir  = NULL; // 根目录
     method.type = MT_PRIMITIVE;\
     method.primFn = func;\
     bindMethod(vm, classPtr, (uint32_t)globalIdx, method);\
+}
+
+// 返回核心模块name的value结构
+static Value getCoreClassValue(ObjModule* objModule, const char* name) {
+    int index = getIndexFromSymbolTable(&objModule->moduleVarName, name, strlen(name));
+    if (index == -1) {
+        char id[MAX_ID_LEN] = {'\0'};
+        memcpy(id, name, strlen(name));
+        RUN_ERROR("something wrong occur: missing core class \"%s\"!", id);
+    }
+    return objModule->moduleVarValue.datas[index];
+}
+
+// 返回bool的字符串形式: true或false
+static bool primBoolToString(VM* vm, Value* args) {
+    ObjString* objString;
+    if (VALUE_TO_BOOL(args[0])) {
+        objString = newObjString(vm, "true", 4);
+    } else {
+        objString = newObjString(vm, "false", 5);
+    }
+    RET_OBJ(objString);
+}
+
+// bool值取反
+static bool primBoolNot(VM* vm UNUSED, Value* args) {
+    RET_BOOL(!VALUE_TO_BOOL(args[0]));
+}
+
+// 校验是否是函数
+static bool validateFn(VM* vm, Value arg) {
+    if (VALUE_TO_OBJCLOSURE(arg)) {
+        return true;
+    }
+
+    vm->curThread->errorObj = OBJ_TO_VALUE(newObjString(vm, "argument must be a function!", 28));
+    return false;
+}
+
+// 以大写字符开头的为类名,表示类(静态)方法的调用
+// Thread.new(func): 创建一个thread实例
+static bool primThreadNew(VM* vm, Value* args) {
+    // 代码块为参数必为闭包
+    if (!validateFn(vm, args[1])) {
+        return false;
+    }
+    ObjThread* objThread = newObjThread(vm, VALUE_TO_OBJCLOSURE(args[1]));
+
+    // stack[0]为接收者,保持栈平衡
+    objThread->stack[0] = VT_TO_VALUE(VT_NULL);
+    objThread->esp++;
+    RET_OBJ(objThread);
+}
+
+// Thread.ablort(err): 以错误信息err为参数退出线程
+static bool primThreadAbort(VM* vm, Value* args) {
+    vm->curThread->errorObj = args[1];
+    return VALUE_IS_NULL(args[1]);
+}
+
+// Thread.current: 返回当前线程
+static bool primThreadCurrent(VM* vm, Value* args UNUSED) {
+    RET_OBJ(vm->curThread);
+}
+
+// Thread.suspend(): 挂起线程,退出解析器
+static bool primThreadSuspend(VM* vm, Value* args UNUSED) {
+    // curThread = NULL虚拟机将推出
+    vm->curThread = NULL;
+    return false;
+}
+
+// Thread.yield(arg) 带参数让出cpu
+static bool primThreadYieldWithArg(VM* vm, Value* args) {
+    ObjThread* curThread = vm->curThread;
+    vm->curThread = curThread->caller;
+    curThread->caller = NULL;
+    if (vm->curThread != NULL) {
+        // 如果当前线程有主调方,将当前线程的返回值放在主调方的栈顶
+        vm->curThread->esp[-1] = args[1];
+        // 对于thread.yield(arg)来说,回收arg的空间,
+        // 保留thread参数所在的空间,将来唤醒时用于存储yield结果
+        curThread->esp--;
+    }
+    return false;
+}
+
+// Thread.yield() 无参数让出cpu
+static bool primThreadYieldWithoutArg(VM* vm, Value* args UNUSED) {
+    ObjThread* curThread = vm->curThread;
+    vm->curThread = curThread->caller;
+    curThread->caller = NULL;
+    if (vm->curThread != NULL) {
+        vm->curThread->esp[-1] = VT_TO_VALUE(VT_NULL);
+    }
+    return false;
+}
+
+// 切换到下一个线程
+static bool switchThread(VM* vm, ObjThread* nextThread, Value* args, bool withArg) {
+    if (nextThread->caller != NULL) {
+        RUN_ERROR("thread has been called!");
+    }
+    nextThread->caller = vm->curThread;
+    if (nextThread->usedFrameNum == 0) {
+        // 只有运行完毕的thread才为0
+        SET_ERROR_FALSE(vm, "a finished thread can't be switched to!");
+    }
+    if (!VALUE_IS_NULL(nextThread->errorObj)) {
+        SET_ERROR_FALSE(vm, "a aborted thread can't be switched to!");
+    }
+    if (withArg) {
+        // 如果call有参数,回收参数的空间
+        // 只保留此栈顶用于存储nextThread返回后的结果
+        vm->curThread->esp--;
+    }
+    ASSERT(nextThread->esp > nextThread->stack, "esp should be greater than stack!");
+    nextThread->esp[-1] = withArg ? args[1] : VT_TO_VALUE(VT_NULL);
+
+    vm->curThread = nextThread;
+    return false;
 }
 
 static Class* defineClass(VM* vm, ObjModule* objModule, const char* name) {
@@ -304,6 +425,10 @@ void buildCore(VM* vm) {
     vm->classOfClass->objHeader.class = vm->classOfClass; // 元信息类回路，meta类终点
    // TODO: coreModuleCode
     executeModule(vm, CORE_MODULE, "coreModuleCode");
+
+    vm->boolClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Bool"));
+    PRIM_METHOD_BIND(vm->boolClass, "toString", primBoolToString);
+    PRIM_METHOD_BIND(vm->boolClass, "!", primBoolNot);
 }
 
 // 执行模块
