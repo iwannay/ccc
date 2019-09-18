@@ -277,6 +277,22 @@ static bool primObjectmetaSame(VM* vm UNUSED, Value* args) {
     RET_VALUE(boolValue);
 }
 
+// Fn.new(_): 新建一个函数
+static bool primFnNew(VM* vm, Value* args) {
+    // 代码块为参数必为闭包
+    if (!validateFn(vm, args[1])) return false;
+
+    // 直接返回函数闭包
+    RET_VALUE(args[1]);
+}
+
+// 绑定fn.call的重载
+static void bindFnOverloadCall(VM* vm, const char* sign) {
+    uint32_t index = ensureSymbolExist(vm, &vm->allModules, sign, strlen(sign));
+    Method method = {MT_FN_CALL, {0}};
+    bindMethod(vm, vm->fnClass, index, method);
+}
+
 // 读取源代码文件
 char* readFile(const char* path) {
     FILE* file = fopen(path, "r");
@@ -463,6 +479,28 @@ void buildCore(VM* vm) {
     PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "call(_)", primThreadCallWithArg);
     PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "isDone", primThreadIsDone);
 
+    // 绑定函数类
+    vm->fnClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Fn"));
+    PRIM_METHOD_BIND(vm->fnClass->objHeader.class, "new(_)", primFnNew);
+
+    // 绑定call的重载方法
+    bindFnOverloadCall(vm, "call()");
+    bindFnOverloadCall(vm, "call(_)");
+    bindFnOverloadCall(vm, "call(_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_,_,_,_)");
+    bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_)");
 }
 
 // 执行模块
