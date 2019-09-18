@@ -734,6 +734,143 @@ static bool primListRemoveAt(VM* vm, Value* args) {
     RET_VALUE(removeElement(vm, objList, index));
 }
 
+// 校验key合法性
+static bool validateKey(VM* vm, Value arg) {
+    if (VALUE_IS_TRUE(arg) || 
+        VALUE_IS_FALSE(arg) ||
+        VALUE_IS_NULL(arg) ||
+        VALUE_IS_NUM(arg) ||
+        VALUE_IS_OBJSTR(arg) ||
+        VALUE_IS_OBJRANGE(arg) ||
+        VALUE_IS_CLASS(arg)) {
+            SET_ERROR_FALSE(vm, "key must be value type!");
+    }
+}
+
+// objMap.new(): 创建map对象
+static bool primMapNew(VM* vm, Value* args UNUSED) {
+    RET_OBJ(newObjMap(vm));
+}
+// objMap[_]: 返回map[key]对应的value
+static bool primMapSubscript(VM* vm, Value* args) {
+    if (!validateKey(vm, args[1])) {
+        return false;
+    }
+    ObjMap* objMap = VALUE_TO_OBJMAP(args[0]);
+    Value value = mapGet(objMap, args[1]);
+    if (VALUE_IS_UNDEFINED(value)) {
+        RET_NULL;
+    }
+    RET_VALUE(value);
+}
+
+// objMap[_]=(_): map[key]=value
+static bool primMapSubscriptSetter(VM* vm, Value* args) {
+    if (!validateKey(vm, args[1])) {
+        return false;
+    }
+    ObjMap* objMap = VALUE_TO_OBJMAP(args[0]);
+    mapSet(vm, objMap, args[1], args[2]);
+    RET_VALUE(args[2]);
+}
+
+// objMap.addCore_(_,_): 编译map字面量时内部使用
+static bool primMapAddCore(VM* vm, Value* args) {
+    if (!validateKey(vm, args[1])) {
+        return false;
+    }
+    ObjMap* objMap = VALUE_TO_OBJMAP(args[0]);
+    mapSet(vm, objMap, args[1], args[2]);
+    RET_VALUE(args[0]);
+}
+
+// objMap.clear(): 清除map
+static bool primMapClear(VM* vm, Value* args) {
+    clearMap(vm, VALUE_TO_OBJMAP(args[0]));
+    RET_NULL;
+}
+
+// objMap.containsKey(_): 判断map即args[0]是否包含key即args[1]
+static bool primMapContainsKey(VM* vm, Value* args) {
+    if (!validateKey(vm, args[1])) {
+        return false;
+    }
+    RET_BOOL(!VALUE_IS_UNDEFINED(mapGet(VALUE_TO_OBJMAP(args[0]), args[1])));
+}
+
+// objMap.count: 返回map中entry个数
+static bool primMapCount(VM* vm UNUSED, Value* args) {
+    RET_NUM(VALUE_TO_OBJMAP(args[0])->count);
+}
+
+// objMap.remove(_): 删除map[key]
+static bool primMapRemove(VM* vm, Value* args) {
+    if (!validateKey(vm, args[1])) {
+        return false;
+    }
+    RET_VALUE(removeKey(vm, VALUE_TO_OBJMAP(args[0]), args[1]));
+}
+// objMap.iterate_(_): 迭代map中的entry
+// 返回entry的索引供keyIteratorValue_和valueIteratorValue_做迭代器
+static bool primMapIterate(VM* vm, Value* args) {
+    ObjMap* objMap = VALUE_TO_OBJMAP(args[0]);
+    if (objMap->count == 0) {
+        RET_FALSE;
+    }
+    uint32_t index = 0;
+    if (!VALUE_IS_NULL(args[1])) {
+        if (!validateInt(vm, args[1])) {
+            return false;
+        }
+        if (VALUE_TO_NUM(args[1]) < 0) {
+            RET_FALSE;
+        }
+        index = (uint32_t)VALUE_TO_NUM(args[1]);
+        if (index >= objMap->capacity) {
+            RET_FALSE;
+        }
+        index++;
+    }
+    while (index < objMap->capacity) {
+        // entries十个数组,元素是哈希槽
+        // 哈希值散布在这些槽中并不连续,因此逐个判断是否在用
+        if (!VALUE_IS_UNDEFINED(objMap->entries[index].key)) {
+            RET_NUM(index);
+        }
+        index++;
+    }
+    RET_FALSE;
+}
+
+static bool primMapKeyIteratorValue(VM* vm, Value* args) {
+    ObjMap* objMap = VALUE_TO_OBJMAP(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objMap->capacity);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    Entry* entry = &objMap->entries[index];
+    if (VALUE_IS_UNDEFINED(entry->key)) {
+        SET_ERROR_FALSE(vm, "invalid iterator!");
+    }
+    RET_VALUE(entry->key);
+}
+
+// objMap.valueIteratorValue_(_)
+// value = map.valueIteratorValue_(iter)
+static bool primMapValueIteratorValue(VM* vm, Value* args) {
+    ObjMap* objMap = VALUE_TO_OBJMAP(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objMap->capacity);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    Entry* entry = &objMap->entries[index];
+    if (VALUE_IS_UNDEFINED(entry->key)) {
+        SET_ERROR_FALSE(vm, "invalid iterator!");
+    }
+    RET_VALUE(entry->value);
+
+}
+
 
 
 
@@ -1289,6 +1426,19 @@ void buildCore(VM* vm) {
     PRIM_METHOD_BIND(vm->listClass, "iteratorValue(_)", primListIteratorValue);
     PRIM_METHOD_BIND(vm->listClass, "removeAt(_)", primListRemoveAt);
 
+    // map
+    vm->mapClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Map"));
+    PRIM_METHOD_BIND(vm->mapClass->objHeader.class, "new()", primMapNew);
+    PRIM_METHOD_BIND(vm->mapClass, "[_]", primMapSubscript);
+    PRIM_METHOD_BIND(vm->mapClass, "[_]=(_)", primMapSubscriptSetter);
+    PRIM_METHOD_BIND(vm->mapClass, "addCore_(_,_)", primMapAddCore);
+    PRIM_METHOD_BIND(vm->mapClass, "clear()", primMapClear);
+    PRIM_METHOD_BIND(vm->mapClass, "containsKey(_)", primMapContainsKey);
+    PRIM_METHOD_BIND(vm->mapClass, "count", primMapCount);
+    PRIM_METHOD_BIND(vm->mapClass, "remove(_)", primMapRemove);
+    PRIM_METHOD_BIND(vm->mapClass, "iterate_(_)", primMapIterate);
+    PRIM_METHOD_BIND(vm->mapClass, "keyIteratorValue_(_)", primMapKeyIteratorValue);
+    PRIM_METHOD_BIND(vm->mapClass, "valueIteratorValue_(_)", primMapValueIteratorValue);
 }
 
 // 执行模块
