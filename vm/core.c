@@ -53,6 +53,75 @@ char* rootDir  = NULL; // 根目录
     bindMethod(vm, classPtr, (uint32_t)globalIdx, method);\
 }
 
+static ObjString* mum2Str(VM* vm, double num) {
+    // NaN不是一个确定的值,所以如果num!=num 就可以断定num是NaN
+    if (num != num) {
+        return newObjString(vm, "nan", 3);
+    }
+    // TODO: 定义INFINITY
+    if (num == INFINITY) {
+        return newObjString(vm, "infinity", 8);
+    }
+
+    if (num == -INFINITY) {
+        return newObjString(vm, "-infinity", 9);
+    }
+
+    // 双精度数字用24字节缓冲区足已容纳
+    char buf[24] = {'\0'};
+    int len = sprintf(buf, "%.14g", num);
+    return newObjString(vm, buf, len);
+}
+
+// 判断arg是否为数字
+static bool validateNum(VM* vm, Value arg) {
+    if (VALUE_IS_NUM(arg)) {
+        return true;
+    }
+    SET_ERROR_FALSE(vm, "argument must be number!");
+}
+
+static bool validateString(VM* vm, Value arg) {
+    if (VALUE_IS_OBJSTR(arg)) {
+        return true;
+    }
+    SET_ERROR_FALSE(vm, "argument must be string!");
+}
+
+// 将字符串转化为数字
+static bool primNumFromString(VM* vm, Value* args) {
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    ObjString* objString = VALUE_TO_OBJSTR(args[1]);
+    
+    if (objString->value.length == 0) {
+        RET_NULL;
+    }
+
+    ASSERT(objString->value.start[objString->value.length] == '\0', "objString't teminate!");
+    errno = 0;
+    char* endPtr;
+    // 将字符串转化为double类型,它会自动跳过前面的空白
+    double num = strtod(objString->value.start, &endPtr);
+
+    while (*endPtr != '\0' && isspace((unsigned char)*endPtr)) {
+        endPtr++;
+    }
+
+    // 字符串过长strtod会修改errno的值,errno为全局定义的宏
+    if (errno == ERANGE) {
+        RUN_ERROR("string too large");
+    }
+
+    // 如果字符串不能转换的字符不全是空白,字符串非法,返回NULL
+    if (endPtr < objString->value.start+objString->value.length) {
+        RET_NULL;
+    }
+
+    RET_NUM(num);
+}
+
 // 返回核心模块name的value结构
 static Value getCoreClassValue(ObjModule* objModule, const char* name) {
     int index = getIndexFromSymbolTable(&objModule->moduleVarName, name, strlen(name));
@@ -293,6 +362,16 @@ static void bindFnOverloadCall(VM* vm, const char* sign) {
     bindMethod(vm, vm->fnClass, index, method);
 }
 
+// null 取非
+static bool primNullNot(VM* vm UNUSED, Value* args UNUSED) {
+    RET_VALUE(BOOL_TO_VALUE(true));
+}
+
+static bool primNullToString(VM* vm, Value* args UNUSED) {
+    ObjString* objString = newObjString(vm, "null", 4);
+    RET_OBJ(objString);
+}
+
 // 读取源代码文件
 char* readFile(const char* path) {
     FILE* file = fopen(path, "r");
@@ -501,6 +580,12 @@ void buildCore(VM* vm) {
     bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_,_,_)");
     bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_,_,_,_)");
     bindFnOverloadCall(vm, "call(_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_)");
+
+    // 绑定Null类的方法
+    vm->nullClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Null"));
+    PRIM_METHOD_BIND(vm->nullClass, "!", primNullNot);
+    PRIM_METHOD_BIND(vm->nullClass, "toString", primNullToString);
+
 }
 
 // 执行模块
