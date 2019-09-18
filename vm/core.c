@@ -174,6 +174,24 @@ static bool switchThread(VM* vm, ObjThread* nextThread, Value* args, bool withAr
     return false;
 }
 
+// objThread.call()
+static bool primThreadCallWithoutArg(VM* vm, Value* args) {
+    return switchThread(vm, VALUE_TO_OBJTHREAD(args[0]), args, false);
+}
+
+// objThread.call(args)
+static bool primThreadCallWithArg(VM* vm, Value* args) {
+    return switchThread(vm, VALUE_TO_OBJTHREAD(args[0]), args, true);
+}
+
+// 返回线程是否运行完成
+static bool primThreadIsDone(VM* vm UNUSED, Value* args) {
+    // 获取.isDone的调度者
+    ObjThread* objThread = VALUE_TO_OBJTHREAD(args[0]);
+    // TODO: return?
+    RET_BOOL(objThread->usedFrameNum == 0 || !VALUE_IS_NULL(objThread->errorObj));
+}
+
 static Class* defineClass(VM* vm, ObjModule* objModule, const char* name) {
     // 1. 先创建类
     Class* class = newRawClass(vm, name, 0);
@@ -423,12 +441,28 @@ void buildCore(VM* vm) {
     vm->objectClass->objHeader.class = objectMetaclass;
     objectMetaclass->objHeader.class = vm->classOfClass;
     vm->classOfClass->objHeader.class = vm->classOfClass; // 元信息类回路，meta类终点
-   // TODO: coreModuleCode
-    executeModule(vm, CORE_MODULE, "coreModuleCode");
+   // TODO: coreModuleCode,这里顺序有问题
+    // executeModule(vm, CORE_MODULE, coreModuleCode);
 
     vm->boolClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Bool"));
     PRIM_METHOD_BIND(vm->boolClass, "toString", primBoolToString);
     PRIM_METHOD_BIND(vm->boolClass, "!", primBoolNot);
+
+    // thread类在core.script.inc中定义
+    // 将其挂载到vm->threadClass 并补全原生方法
+    vm->threadClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Thread"));
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "new(_)", primThreadNew);
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "abort(_)", primThreadAbort);
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "current", primThreadCurrent);
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "suspend()", primThreadSuspend);
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "yield(_)", primThreadYieldWithArg);
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "yield()", primThreadYieldWithoutArg);
+    
+    // 以下是实例方法
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "call()", primThreadCallWithoutArg);
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "call(_)", primThreadCallWithArg);
+    PRIM_METHOD_BIND(vm->threadClass->objHeader.class, "isDone", primThreadIsDone);
+
 }
 
 // 执行模块

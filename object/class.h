@@ -37,7 +37,9 @@ typedef enum {
 #define VALUE_TO_OBJLIST(value) ((ObjList*)VALUE_TO_OBJ(value))
 #define VALUE_TO_OBJMAP(value) ((ObjMap*)VALUE_TO_OBJ(value))
 #define VALUE_TO_OBJCLOSURE(value) ((ObjClosure*)VALUE_TO_OBJ(value))
+#define VALUE_TO_OBJTHREAD(value) ((ObjThread*)VALUE_TO_OBJ(value))
 #define VALUE_TO_CLASS(value) ((Class*)VALUE_TO_OBJ(value))
+
 
 #define VALUE_IS_UNDEFINED(value) ((value).type == VT_UNDEFINED)
 #define VALUE_IS_NULL(value) ((value).type == VT_NULL)
