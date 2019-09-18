@@ -82,11 +82,11 @@ uint32_t getByteNumOfDecodeUtf8(uint8_t byte) {
     return 1; // ascii 码
 }
 
- // 解码以bytePtr 为起始地址的utf-8序列,其最大长度为length, 若不是uhf-8序列就返回-1
+ // 解码以bytePtr 为起始地址的utf-8序列,其最大长度为length, 若不是utf-8序列就返回-1
 int decodeUtf8(const uint8_t* bytePtr, uint32_t length) {
         // 若是1字节的ascii 0xxxxxxx
         if (*bytePtr <= 0x7f) {
-        return *bytePtr;
+            return *bytePtr;
         }
 
         int value;
@@ -95,17 +95,17 @@ int decodeUtf8(const uint8_t* bytePtr, uint32_t length) {
         // 先读取高1字节
         // 根据高字节的高n位判断相应字节数的utf-8编码
         if ((*bytePtr & 0xe0) == 0xc0) {
-        // 若是2字节的utf-8
-        value = *bytePtr & 0x1f;
-        remainingBytes = 1;
+            // 若是2字节的utf-8
+            value = *bytePtr & 0x1f;
+            remainingBytes = 1;
         } else if ((*bytePtr & 0xf0) == 0xe0) {
-        // 若是3字节的utf-8
-        value = *bytePtr & 0x0f;
-        remainingBytes = 2;
+            // 若是3字节的utf-8
+            value = *bytePtr & 0x0f;
+            remainingBytes = 2;
         } else if ((*bytePtr & 0xf8) == 0xf0) {
-        // 若是4字节的utf-8
-        value = *bytePtr & 0x07;
-        remainingBytes = 3;
+            // 若是4字节的utf-8
+            value = *bytePtr & 0x07;
+            remainingBytes = 3;
     } else {
         return -1;
     }

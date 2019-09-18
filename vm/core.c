@@ -9,6 +9,7 @@
 #include "class.h"
 #include "utils.h"
 #include "obj_range.h"
+#include "unicodeUtf8.h"
 
 char* rootDir  = NULL; // 根目录
 
@@ -259,6 +260,370 @@ static bool primNumNotEqual(VM* vm UNUSED, Value* args) {
     }
     RET_BOOL(VALUE_TO_NUM(args[0]) != VALUE_TO_NUM(args[1]));
 }
+
+// 确认value是否为整数
+static bool validateIntValue(VM* vm, double value) {
+    if (trunc(value) == value) {
+        return true;
+    }
+    SET_ERROR_FALSE(vm, "argument must be integer!");
+}
+
+static bool validateInt(VM* vm, Value arg) {
+    if (!validateNum(vm, arg)) {
+        return false;
+    }
+    return validateIntValue(vm, VALUE_TO_NUM(arg));
+}
+
+// 校验参数index是否是落在[0, length] 之间的整数
+static uint32_t validateIndexValue(VM* vm, double index, uint32_t length) {
+    if (!validateIntValue(vm, index)) {
+        return UINT32_MAX;
+    }
+    // 支持负数索引,负数是由后往前索引
+    if (index < 0) {
+        index += length;
+    }
+    if (index >= 0 && index < length) {
+        return (uint32_t) index;
+    }
+    // 超出范围
+    vm->curThread->errorObj = OBJ_TO_VALUE(newObjString(vm, "index out of bound", 19));
+    return UINT32_MAX;
+}
+
+// 验证index有效性
+static uint32_t validateIndex(VM* vm, Value index, uint32_t length) {
+    if (!validateNum(vm, index)) {
+        return UINT32_MAX;
+    }
+    return validateIndexValue(vm, VALUE_TO_NUM(index), length);
+}
+
+// 从码点value创建字符串
+static Value makeStringFromcodePoint(VM* vm, int value) {
+    uint32_t byteNum = getByteNumOfEncodeUtf8(value);
+    ASSERT(byteNum != 0, "utf8 encode bytes should be between 1 and 4!");
+    // 结尾\0,+1
+    ObjString* objString = ALLOCATE_EXTRA(vm, ObjString, byteNum+1);
+
+    if (objString == NULL) {
+        MEM_ERROR("allocate memory failed in runtime");
+    }
+    initObjHeader(vm, &objString->objHeader, OT_STRING, vm->stringClass);
+    objString->value.length = byteNum;
+    objString->value.start[byteNum] = '\0';
+    encodeUtf8((uint8_t*)objString->value.start, value);
+    hashObjString(objString);
+    return OBJ_TO_VALUE(objString);
+}
+
+// 用索引index处的字节创建字符串对象
+static Value stringCodePointAt(VM* vm, ObjString* objString, uint32_t index) {
+    ASSERT(index < objString->value.length, "index out of bound!");
+    int codePoint = decodeUtf8((uint8_t*)objString->value.start+index, objString->value.length-index);
+    if (codePoint == -1) {
+        return OBJ_TO_VALUE(newObjString(vm, &objString->value.start[index], 1));
+    }
+    return makeStringFromcodePoint(vm, codePoint);
+}
+
+// 计算objRange中元素的起始索引及索引方向
+static uint32_t calculateRange(VM* vm, ObjRange* objRange, uint32_t* countPtr, int* directionPtr) {
+    uint32_t from = validateIndexValue(vm, objRange->from, *countPtr);
+    if (from == UINT32_MAX) {
+        return UINT32_MAX;
+    }
+    uint32_t to = validateIndexValue(vm, objRange->to, *countPtr);
+    if (to == UINT32_MAX) {
+        return UINT32_MAX;
+    }
+    *directionPtr = from < to ? 1 : -1;
+    *countPtr = abs((int)(from -to)) + 1;
+    return from;
+}
+
+// 以UTF-8编码从sourceStr中起始为startIndex,方向为direction的count个字符创建字符串
+static ObjString* newObjStringFromSub(VM* vm, ObjString* sourceStr, int startIndex, uint32_t count, int direction) {
+    uint8_t* source = (uint8_t)sourceStr->value.start;
+    uint32_t totalLength = 0, idx = 0;
+    while (idx < count) {
+        totalLength += getByteNumOfDecodeUtf8(source[startIndex+idx*direction]);
+        idx++;
+    }
+    ObjString* result = ALLOCATE_EXTRA(vm, ObjString, totalLength+1);
+    if (result == NULL) {
+        MEM_ERROR("allocate memory failed in runtime!");
+    }
+    initObjHeader(vm, &result->objHeader, OT_STRING, vm->stringClass);
+    result->value.start[totalLength] = '\0';
+    result->value.length = totalLength;
+    
+    uint8_t* dest = (uint8_t*)result->value.start;
+    idx = 0;
+    while (idx < count) {
+        int index = startIndex + idx * direction;
+        // 解码获取字符数据
+        int codePoint = decodeUtf8(source+index, sourceStr->value.length-index);
+        if (codePoint != -1) {
+            dest += encodeUtf8(dest, codePoint);
+        }
+        idx++;
+    }
+    hashObjString(result);
+    return result;
+}
+
+// 使用Boyer-Moore-horpool字符串匹配算法在haystack中查找need
+static int findString(ObjString* haystack, ObjString* needle) {
+    if (needle->value.length == 0) {
+        return 0;
+    }
+    if (needle->value.length > haystack->value.length) {
+        return -1;
+    }
+
+    uint32_t shift[UINT8_MAX];
+    int32_t needleEnd = needle->value.length - 1;
+    uint32_t idx = 0;
+    while (idx < UINT8_MAX) {
+        shift[idx] = needle->value.length;
+        idx++;
+    }
+    idx = 0;
+    while (idx < needleEnd) {
+        char c = needle->value.start[idx];
+        shift[(uint8_t)c] = needleEnd - idx;
+        idx++;
+    }
+    char lastChar = needle->value.start[needleEnd];
+    uint32_t range = haystack->value.length - needle->value.length;
+    idx = 0;
+    while (idx <= range) {
+        char c = haystack->value.start[idx+needleEnd];
+        if (lastChar == c && memcmp(haystack->value.start+idx, needle->value.start, needleEnd) == 0) {
+            return idx;
+        }
+        idx += shift[(uint8_t)c];
+    }
+    return -1;
+}
+
+static bool primStringFromCodePoint(VM* vm, Value* args) {
+    if (!validateInt(vm, args[1])) {
+        return false;
+    }
+    int codePoint = (int)VALUE_TO_NUM(args[1]);
+    if (codePoint < 0) {
+        SET_ERROR_FALSE(vm, "code point can't be negetive!");
+    }
+    if (codePoint > 0x10ffff) {
+        SET_ERROR_FALSE(vm, "code point must be between 0 and 0x10ffff");
+    }
+    RET_VALUE(makeStringFromcodePoint(vm, codePoint));
+}
+
+// 字符串相加
+static bool primStringPlus(VM* vm, Value* args) {
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    ObjString* left = VALUE_TO_OBJSTR(args[0]);
+    ObjString* right = VALUE_TO_OBJSTR(args[1]);
+    uint32_t totalLength = strlen(left->value.start) + strlen(right->value.start);
+    ObjString* result = ALLOCATE_EXTRA(vm, ObjString, totalLength+1);
+    if (result == NULL) {
+        MEM_ERROR("allocate memory failed in runtime!");
+    }
+    initObjHeader(vm, &result->objHeader, OT_STRING, vm->stringClass);
+    memcpy(result->value.start, left->value.start, strlen(left->value.start));
+    memcpy(result->value.start+strlen(left->value.start), right->value.start, strlen(right->value.start));
+    result->value.start[totalLength] = '\0';
+    hashObjString(result);
+    RET_OBJ(result);
+}
+
+// objString[_]:用数字或objRange对象做字符串的subscript
+static bool primStringSubscript(VM* vm, Value* args) {
+    ObjString* objstring = VALUE_TO_OBJSTR(args[0]);
+    if (VALUE_IS_NUM(args[1])) {
+        uint32_t index = validateIndex(v, args[1], objstring->value.length);
+        if (index == UINT32_MAX) {
+            return false;
+        }
+        RET_VALUE(stringCodePointAt(vm, objstring, index));
+    }
+    if (!VALUE_IS_OBJRANGE(args[1])) {
+        SET_ERROR_FALSE(vm, "subscript should be integer or range!");
+    }
+    int direction;
+    uint32_t count = objstring->value.length;
+    uint32_t startIndx = calculateRange(vm, VALUE_TO_OBJRANGE(args[1]), &count, &direction);
+    if (startIndx == UINT32_MAX) {
+        return false;
+    }
+    RET_OBJ(newObjStringFromSub(vm, objstring, startIndx, count, direction));
+}
+
+// objString.byteAt_():返回指定索引的字节
+static bool primStringByteAt(VM* vm UNUSED, Value* args) {
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objString->value.length);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    RET_NUM((uint8_t)objString->value.start[index]);
+}
+
+// objstring.byteCount_:返回字节数
+static bool primStringByteCount(VM* vm UNUSED, Value* args) {
+    RET_NUM(VALUE_TO_OBJSTR(args[0])->value.length);
+}
+
+// objString.codePointAt_(_):返回指定的CodePoint
+static bool primStringCodePointAt(VM* vm UNUSED, Value* args) {
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objString->value.length);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    const uint8_t* bytes = (uint8_t)objString->value.start;
+    if ((bytes[index] & 0xc0) == 0x80) {
+        // 如果index指向的并不是utf8编码的最高字节,而是后面的低字节,返回-1提示用户
+        RET_NUM(-1);
+    }
+    // 返回解码
+    RET_NUM(decodeUtf8((uint8_t*)objString->value.start+index, objString->value.length-index));
+}
+
+// objString.contains(_): 判断字符串args[0]中是否包含子字符串args[1]
+static bool primStringContains(VM* vm UNUSED, Value* args) {
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    ObjString* pattern = VALUE_TO_OBJSTR(args[1]);
+    RET_BOOL(findString(objString, pattern) != -1);
+}
+
+// objString.endsWith(_): 返回字符串是否以args[1]为结束
+static bool primStringEndsWith(VM* vm UNUSED, Value* args) {
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    ObjString* pattern = VALUE_TO_OBJSTR(args[1]);
+    if (pattern->value.length > objString->value.length) {
+        RET_FALSE;
+    }
+    char* cmpIdx = objString->value.start + objString->value.length-pattern->value.length;
+    RET_BOOL(memcmp(cmpIdx, pattern->value.start, pattern->value.length) == 0);
+}
+
+// objString.indexOf(_): 检索字符串args[0]中子串args[1]的起始下标
+static bool primStringIndexOf(VM* vm UNUSED, Value* args) {
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    ObjString* pattern = VALUE_TO_OBJSTR(args[1]);
+    if (pattern->value.length > objString->value.length) {
+        RET_FALSE;
+    }
+    int index = findString(objString, pattern);
+    RET_NUM(index);
+}
+
+// objString.iterate(_):返回下一个utf-8字符串(不是字节)的迭代器
+static bool primStringIterate(VM* vm UNUSED, Value* args) {
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    if (VALUE_IS_NULL(args[1])) { // 第一次迭代为null
+        if (objString->value.length == 0) {
+            RET_FALSE;
+        }
+        RET_NUM(0);
+    }
+    // 迭代器必须是正整数
+    if (!validateInt(vm, args[1])) {
+        return false;
+    }
+    double iter = VALUE_TO_NUM(args[1]);
+    if (iter < 0) {
+        RET_FALSE;
+    }
+    uint32_t index = (uint32_t)iter;
+    do {
+        index++;
+        if (index >= objString->value.length) RET_FALSE;
+    } while((objString->value.start[index] & 0xc0) == 0x80);
+    RET_NUM(index);
+}
+
+// objString.iterateByte_(_): 迭代索引,内部使用
+static bool primStringIterateByte(VM* vm UNUSED, Value* args) {
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    if (VALUE_IS_NULL(args[1])) {
+        if (objString->value.length == 0) {
+            RET_FALSE;
+        }
+        RET_NUM(0);
+    }
+    if (!validateInt(vm, args[1])) {
+        return false;
+    }
+    double iter = VALUE_TO_NUM(args[1]);
+    if (iter < 0) {
+        RET_FALSE;
+    }
+
+    uint32_t index = (uint32_t)iter;
+    index++; // 下一个字节的索引
+    if (index >= objString->value.length) {
+        RET_FALSE;
+    }
+    RET_NUM(index);
+}
+
+// objString.itervatorValue(_): 返回迭代器对应的value
+static bool primStringIteratorValue(VM* vm, Value* args) {
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objString->value.length);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    RET_VALUE(stringCodePointAt(vm, objString, index));
+}
+// objString.startsWith(_): 返回args[0]是否以args[1]为起始
+static bool primStringStartsWith(VM* vm UNUSED, Value* args) {
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    ObjString* objString = VALUE_TO_OBJSTR(args[0]);
+    ObjString* pattern = VALUE_TO_OBJSTR(args[1]);
+
+    if (pattern->value.length > objString->value.length) {
+        RET_FALSE;
+    }
+    RET_BOOL(memcmp(objString->value.start, pattern->value.start, pattern->value.length) == 0);
+}
+
+// objString.toString: 获得自己的字符串
+static bool primStringToString(VM* vm UNUSED, Value* args) {
+    RET_VALUE(args[0]);
+}
+
+
+
+
+
+
+
+
+
+
+
+
 // 返回核心模块name的value结构
 static Value getCoreClassValue(ObjModule* objModule, const char* name) {
     int index = getIndexFromSymbolTable(&objModule->moduleVarName, name, strlen(name));
@@ -768,6 +1133,27 @@ void buildCore(VM* vm) {
     PRIM_METHOD_BIND(vm->numberClass, "truncate", primNumTruncate);
     PRIM_METHOD_BIND(vm->numberClass, "==(_)", primNumEqual);
     PRIM_METHOD_BIND(vm->numberClass, "!=(_)", primNumNotEqual);
+    
+    // 字符串类
+    vm->stringClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "String"));
+    // 类方法
+    PRIM_METHOD_BIND(vm->stringClass->objHeader.class, "fromCodePoint(_)", primStringFromCodePoint);
+    // 实例方法
+    PRIM_METHOD_BIND(vm->stringClass, "+(_)", primStringPlus);
+    PRIM_METHOD_BIND(vm->stringClass, "[_]", primStringSubscript);
+    PRIM_METHOD_BIND(vm->stringClass, "byteAt_(_)", primStringByteAt);
+    PRIM_METHOD_BIND(vm->stringClass, "byteCount_", primStringByteCount);
+    PRIM_METHOD_BIND(vm->stringClass, "codePointAt_(_)", primStringCodePointAt);
+    PRIM_METHOD_BIND(vm->stringClass, "contains(_)", primStringContains);
+    PRIM_METHOD_BIND(vm->stringClass, "endsWith(_)", primStringEndsWith);
+    PRIM_METHOD_BIND(vm->stringClass, "indexOf(_)", primStringIndexOf);
+    PRIM_METHOD_BIND(vm->stringClass, "iterate(_)", primStringIterate);
+    PRIM_METHOD_BIND(vm->stringClass, "iterateByte_(_)", primStringIterateByte);
+    PRIM_METHOD_BIND(vm->stringClass, "iterateValue_(_)", primStringIteratorValue);
+    PRIM_METHOD_BIND(vm->stringClass, "startsWith(_)", primStringStartsWith);
+    PRIM_METHOD_BIND(vm->stringClass, "toString", primStringToString);
+    PRIM_METHOD_BIND(vm->stringClass, "count", primStringByteCount);
+
 
 }
 
