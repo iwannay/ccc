@@ -10,6 +10,7 @@
 #include "utils.h"
 #include "obj_range.h"
 #include "unicodeUtf8.h"
+#include "obj_list.h"
 
 char* rootDir  = NULL; // 根目录
 
@@ -613,6 +614,126 @@ static bool primStringToString(VM* vm UNUSED, Value* args) {
     RET_VALUE(args[0]);
 }
 
+// objList.New(): 创建一个新的list
+static bool primListNew(VM* vm, Value* args UNUSED) {
+    RET_OBJ(newObjList(vm, 0));
+}
+
+// objList[_]: 索引list元素
+static bool primListSubscript(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    if (VALUE_IS_NUM(args[1])) {
+        uint32_t index = validateIndex(vm, args[1], objList->elements.count);
+        if (index == UINT32_MAX) {
+            return false;
+        }
+        RET_VALUE(objList->elements.datas[index]);
+    }
+
+    if (!VALUE_IS_OBJRANGE(args[1])) {
+        SET_ERROR_FALSE(vm, "subscript should be integer or range!");
+    }
+    int direction;
+    uint32_t count = objList->elements.count;
+    uint32_t startIndex = calculateRange(vm, VALUE_TO_OBJSTR(args[1]), &count, &direction);
+
+    ObjList* result = newObjList(vm, count);
+    uint32_t idx = 0;
+    while (idx < count) {
+        result->elements.datas[idx] = objList->elements.datas[startIndex+idx*direction];
+        idx++;
+    }
+    RET_OBJ(result);
+}
+
+// objList[_]=(_): 值支持数字作为subscript
+static bool primListSubscriptSetter(VM* vm UNUSED, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objList->elements.count);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    objList->elements.datas[index] = args[2];
+    RET_VALUE(args[2]);
+}
+
+// objList.add(_): 直接追加到list中
+static bool primListAdd(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    ValueBufferAdd(vm, &objList->elements, args[1]);
+    RET_VALUE(args[1]); // 参数作为返回值
+}
+
+// objList.addCore_(_): 编译列表直接量
+static bool primListAddCore(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    ValueBufferAdd(vm, &objList->elements, args[1]);
+    RET_VALUE(args[0]); // 返回自身
+}
+
+// objList.clear(): 清空list
+static bool primListClear(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    ValueBufferClear(vm, &objList->elements);
+    RET_NULL;
+}
+
+// objList.count: 返回list中元素个数
+static bool primListCount(VM* vm UNUSED, Value* args) {
+    RET_NUM(VALUE_TO_OBJLIST(args[0])->elements.count);
+}
+
+// objList.insert(_,_): 插入元素
+static bool primListInsert(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    // +1 确保可以在最后插入
+    uint32_t index = validateIndex(vm, args[1], objList->elements.count+1);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    insertElement(vm, objList, index, args[2]);
+    RET_VALUE(args[2]);
+}
+
+// objList.iterate(_):返回list
+static bool primListIterate(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    if (VALUE_IS_NULL(args[1])) {
+        if (objList->elements.count == 0) {
+            RET_FALSE;
+        }
+        RET_NUM(0);
+    }
+    if (!validateInt(vm, args[1])) {
+        return false;
+    }
+    double iter = VALUE_TO_NUM(args[1]);
+    if (iter<0 || iter >= objList->elements.count - 1) {
+        RET_FALSE;
+    }
+    RET_NUM(iter+1);
+}
+
+// objList.iteratorValue(_): 返回迭代值
+static bool primListIteratorValue(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objList->elements.count);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    RET_VALUE(objList->elements.datas[index]);
+}
+
+// objList.remoteAt(_): 删除指定位置的元素
+static bool primListRemoveAt(VM* vm, Value* args) {
+    ObjList* objList = VALUE_TO_OBJLIST(args[0]);
+    uint32_t index = validateIndex(vm, args[1], objList->elements.count);
+    if (index == UINT32_MAX) {
+        return false;
+    }
+    RET_VALUE(removeElement(vm, objList, index));
+}
+
 
 
 
@@ -1154,6 +1275,19 @@ void buildCore(VM* vm) {
     PRIM_METHOD_BIND(vm->stringClass, "toString", primStringToString);
     PRIM_METHOD_BIND(vm->stringClass, "count", primStringByteCount);
 
+    // list类
+    vm->listClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "List"));
+    PRIM_METHOD_BIND(vm->listClass->objHeader.class, "new()", primListNew);
+    PRIM_METHOD_BIND(vm->listClass, "[_]", primListSubscript);
+    PRIM_METHOD_BIND(vm->listClass, "[_]=(_)", primListSubscriptSetter);
+    PRIM_METHOD_BIND(vm->listClass, "add(_)", primListAdd);
+    PRIM_METHOD_BIND(vm->listClass, "addCore_(_)", primListAddCore);
+    PRIM_METHOD_BIND(vm->listClass, "clear()", primListClear);
+    PRIM_METHOD_BIND(vm->listClass, "count()", primListCount);
+    PRIM_METHOD_BIND(vm->listClass, "insert(_,_)", primListInsert);
+    PRIM_METHOD_BIND(vm->listClass, "iterate(_)", primListIterate);
+    PRIM_METHOD_BIND(vm->listClass, "iteratorValue(_)", primListIteratorValue);
+    PRIM_METHOD_BIND(vm->listClass, "removeAt(_)", primListRemoveAt);
 
 }
 
