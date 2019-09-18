@@ -8,6 +8,7 @@
 #include "compiler.h"
 #include "class.h"
 #include "utils.h"
+#include "obj_range.h"
 
 char* rootDir  = NULL; // 根目录
 
@@ -53,7 +54,7 @@ char* rootDir  = NULL; // 根目录
     bindMethod(vm, classPtr, (uint32_t)globalIdx, method);\
 }
 
-static ObjString* mum2Str(VM* vm, double num) {
+static ObjString* num2Str(VM* vm, double num) {
     // NaN不是一个确定的值,所以如果num!=num 就可以断定num是NaN
     if (num != num) {
         return newObjString(vm, "nan", 3);
@@ -122,6 +123,142 @@ static bool primNumFromString(VM* vm, Value* args) {
     RET_NUM(num);
 }
 
+// 返回圆周率
+static bool primNumPi(VM* vm UNUSED, Value* args UNUSED) {
+    RET_NUM(3.14159265358979323846);
+}
+
+#define PRIM_NUM_INFIX(name, operator, type)\
+    static bool name(VM* vm, Value* args) {\
+        if (!validateNum(vm, args[1])) {\
+            return false;\
+        }\
+        RET_##type(VALUE_TO_NUM(args[0]) operator VALUE_TO_NUM(args[1]) );\
+    }
+
+PRIM_NUM_INFIX(primNumPlus, +, NUM);
+PRIM_NUM_INFIX(primNumMinus, -, NUM);
+PRIM_NUM_INFIX(primNumMul, *, NUM);
+PRIM_NUM_INFIX(primNumDiv, /, NUM);
+PRIM_NUM_INFIX(primNumGt, >, BOOL);
+PRIM_NUM_INFIX(primNumGe, >=, NUM);
+PRIM_NUM_INFIX(primNumLt, <, NUM);
+PRIM_NUM_INFIX(primNumLe, <=, NUM);
+#undef PRIM_NUM_INFIX
+
+#define PRIM_NUM_BIT(name, operator)\
+    static bool name(VM* vm UNUSED, Value* args) {\
+        if (!validateNum(vm, args[1])) {\
+            return false;\
+        }\
+        uint32_t leftOperand = VALUE_TO_NUM(args[0]);\
+        uint32_t rightOperand = VALUE_TO_NUM(args[1]);\
+        RET_NUM(leftOperand operator rightOperand);\
+    }
+
+PRIM_NUM_BIT(primNumBitAnd, &);
+PRIM_NUM_BIT(primNumBitOr, |);
+PRIM_NUM_BIT(primNumBitShiftRight, >>);
+PRIM_NUM_BIT(primNumBitShiftLeft, <<);
+#undef PRIM_NUM_BIT
+
+// 使用数学库函数
+#define PRIM_NUM_MATH_FN(name, mathFn)\
+    static bool name(VM* vm UNUSED, Value* args) {\
+        RET_NUM(mathFn(VALUE_TO_NUM(args[0])));\
+    }
+
+PRIM_NUM_MATH_FN(primNumAbs, fabs);
+PRIM_NUM_MATH_FN(primNumAcos, acos);
+PRIM_NUM_MATH_FN(primNumAsin, asin);
+PRIM_NUM_MATH_FN(primNumAtan, atan);
+PRIM_NUM_MATH_FN(primNumCeil, ceil);
+PRIM_NUM_MATH_FN(primNumCos, cos);
+PRIM_NUM_MATH_FN(primNumFloor, floor);
+PRIM_NUM_MATH_FN(primNumNegate, -);
+PRIM_NUM_MATH_FN(primNumSin, sin);
+PRIM_NUM_MATH_FN(primNumSqrt, sqrt);
+PRIM_NUM_MATH_FN(primNumTan, tan);
+#undef PRIM_NUM_MATH_FN
+
+// 浮点取模fmod实现
+static bool primNumMod(VM* vm UNUSED, Value* args) {
+    if (!validateNum(vm, args[1])) {
+        return false;
+    }
+    RET_NUM(fmod(VALUE_TO_NUM(args[0]), VALUE_TO_NUM(args[1])));
+}
+
+static bool primNumBitNot(VM* vm UNUSED, Value* args) {
+    RET_NUM(~(uint32_t)VALUE_TO_NUM(args[0]));
+}
+
+static bool primNumRange(VM* vm UNUSED, Value* args) {
+    if (!validateNum(vm, args[1])) {
+        return false;
+    }
+    double from = VALUE_TO_NUM(args[0]);
+    double to = VALUE_TO_NUM(args[1]);
+    RET_OBJ(newObjRange(vm, from, to));
+}
+
+static bool primNumAtan2(VM* vm UNUSED, Value* args) {
+    if (!validateNum(vm, args[1])) {
+        return false;
+    }
+    RET_NUM(atan2(VALUE_TO_NUM(args[0]), VALUE_TO_NUM(args[1])));
+}
+
+// 返回小数部分
+static bool primNumFraction(VM* vm UNUSED, Value* args) {
+    double dummyInteger;
+    RET_NUM(modf(VALUE_TO_NUM(args[0]), &dummyInteger));
+}
+
+// 判断数字是否无穷大
+static bool primNumIsInfinity(VM* vm UNUSED, Value* args) {
+    RET_BOOL(isinf(VALUE_TO_NUM(args[0])));
+}
+
+// 判断是否为数字
+static bool primNumIsInteger(VM* vm UNUSED, Value* args) {
+    double num = VALUE_TO_NUM(args[0]);
+    if (isnan(num) || isinf(num)) {
+        RET_FALSE;
+    }
+    RET_BOOL(trunc(num) == num);
+}
+
+// 判断数字是否为nan
+static bool primNumIsNan(VM* vm UNUSED, Value* args) {
+    RET_BOOL(isnan(VALUE_TO_NUM(args[0])));
+}
+
+// 数字转换为字符串
+static bool primNumToString(VM* vm UNUSED, Value* args) {
+    RET_OBJ(num2str(vm, VALUE_TO_NUM(args[0])));
+}
+
+// 数字取整
+static bool primNumTruncate(VM* vm UNUSED, Value* args) {
+    double integer;
+    modf(VALUE_TO_NUM(args[0]), &integer);
+    RET_NUM(integer);
+}
+
+static bool primNumEqual(VM* vm UNUSED, Value* args) {
+    if (!validateNum(vm, args[1])) {
+        RET_FALSE;
+    }
+    RET_BOOL(VALUE_TO_NUM(args[0]) == VALUE_TO_NUM(args[1]));
+}
+
+static bool primNumNotEqual(VM* vm UNUSED, Value* args) {
+    if (!validateNum(vm, args[1])) {
+        RET_TRUE;
+    }
+    RET_BOOL(VALUE_TO_NUM(args[0]) != VALUE_TO_NUM(args[1]));
+}
 // 返回核心模块name的value结构
 static Value getCoreClassValue(ObjModule* objModule, const char* name) {
     int index = getIndexFromSymbolTable(&objModule->moduleVarName, name, strlen(name));
@@ -585,6 +722,52 @@ void buildCore(VM* vm) {
     vm->nullClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Null"));
     PRIM_METHOD_BIND(vm->nullClass, "!", primNullNot);
     PRIM_METHOD_BIND(vm->nullClass, "toString", primNullToString);
+
+    vm->numberClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Num"));
+    // 类方法
+    PRIM_METHOD_BIND(vm->numberClass, "fromString(_)", primNumFromString);
+    PRIM_METHOD_BIND(vm->numberClass, "pi", primNumPi);
+    // 实例方法
+    PRIM_METHOD_BIND(vm->numberClass, "+(_)", primNumPlus);
+    PRIM_METHOD_BIND(vm->numberClass, "-(_)", primNumMinus);
+    PRIM_METHOD_BIND(vm->numberClass, "*(_)", primNumMul);
+    PRIM_METHOD_BIND(vm->numberClass, "/(_)", primNumDiv);
+    PRIM_METHOD_BIND(vm->numberClass, ">(_)", primNumGt);
+    PRIM_METHOD_BIND(vm->numberClass, ">=(_)", primNumGe);
+    PRIM_METHOD_BIND(vm->numberClass, "<(_)", primNumLt);
+    PRIM_METHOD_BIND(vm->numberClass, "<=(_)", primNumLe);
+    // 位运算
+    PRIM_METHOD_BIND(vm->numberClass, "&(_)", primNumBitAnd);
+    PRIM_METHOD_BIND(vm->numberClass, "|(_)", primNumBitOr);
+    PRIM_METHOD_BIND(vm->numberClass, ">>(_)", primNumBitShiftRight);
+    PRIM_METHOD_BIND(vm->numberClass, "<<(_)", primNumBitShiftLeft);
+    // 以上通过rules infix_operator来解析
+
+    // 下面大部分通过rules中对应的led(callEntry)来解析
+    // 少数依然那是infix_operator解析
+    PRIM_METHOD_BIND(vm->numberClass, "abs", primNumAbs);
+    PRIM_METHOD_BIND(vm->numberClass, "acos", primNumAcos);
+    PRIM_METHOD_BIND(vm->numberClass, "asin", primNumAsin);
+    PRIM_METHOD_BIND(vm->numberClass, "atan", primNumAtan);
+    PRIM_METHOD_BIND(vm->numberClass, "ceil", primNumCeil);
+    PRIM_METHOD_BIND(vm->numberClass, "cos", primNumCos);
+    PRIM_METHOD_BIND(vm->numberClass, "floor", primNumFloor);
+    PRIM_METHOD_BIND(vm->numberClass, "-", primNumNegate);
+    PRIM_METHOD_BIND(vm->numberClass, "sin", primNumSin);
+    PRIM_METHOD_BIND(vm->numberClass, "sqrt", primNumSqrt);
+    PRIM_METHOD_BIND(vm->numberClass, "tan", primNumTan);
+    PRIM_METHOD_BIND(vm->numberClass, "%(_)", primNumMod);
+    PRIM_METHOD_BIND(vm->numberClass, "~", primNumBitNot);
+    PRIM_METHOD_BIND(vm->numberClass, "..(_)", primNumRange);
+    PRIM_METHOD_BIND(vm->numberClass, "atan(_)", primNumAtan2);
+    PRIM_METHOD_BIND(vm->numberClass, "fraction", primNumFraction);
+    PRIM_METHOD_BIND(vm->numberClass, "isInfinity", primNumIsInfinity);
+    PRIM_METHOD_BIND(vm->numberClass, "isInteger", primNumIsInteger);
+    PRIM_METHOD_BIND(vm->numberClass, "isNan", primNumIsNan);
+    PRIM_METHOD_BIND(vm->numberClass, "toString", primNumToString);
+    PRIM_METHOD_BIND(vm->numberClass, "truncate", primNumTruncate);
+    PRIM_METHOD_BIND(vm->numberClass, "==(_)", primNumEqual);
+    PRIM_METHOD_BIND(vm->numberClass, "!=(_)", primNumNotEqual);
 
 }
 
