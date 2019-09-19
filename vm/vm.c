@@ -612,6 +612,18 @@ void initVM(VM* vm) {
 
     vm->grays.grayObjects = (ObjHeader**)malloc(vm->grays.capacity*sizeof(ObjHeader*));
 }
+void freeVM(VM* vm) {
+    ASSERT(vm->allMethodNames.count > 0, "VM have alrady been freed!");
+    ObjHeader* objHeader = vm->allObjects;
+    while (objHeader != NULL) {
+        ObjHeader* next = objHeader->next;
+        freeObject(vm, objHeader);
+        objHeader = next;
+    }
+    vm->grays.grayObjects = DEALLOCATE(vm, vm->grays.grayObjects);
+    StringbufferClear(vm, &vm->allMethodNames);
+    DEALLOCATE(vm, vm);
+}
 
 VM* newVM() {
     VM* vm = (VM*)malloc(sizeof(VM));

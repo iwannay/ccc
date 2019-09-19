@@ -34,11 +34,24 @@ static void runFile(const char* path) {
     executeModule(vm, OBJ_TO_VALUE(newObjString(vm, path, strlen(path))), sourceCode);
 }
 
+static void runCli(void) {
+    VM* vm = newVM();
+    char sourceLine[MAX_LINE_LEN];
+    printf("maque Version: 0.1\n");
+    while (true) {
+        printf(">>> ");
+        if (!fgets(sourceLine, MAX_LINE_LEN, stdin) || memcmp(sourceLine, "quit", 4) == 0) {
+            break;
+        } 
+        executeModule(vm, OBJ_TO_VALUE(newObjString(vm, "cli", 3)), sourceLine);
+    }
+    freeVM(vm);
+}
+
 int main(int argc, const char** argv) {
     if (argc == 1) {
-         printf("nothing to do!\n");
+        runCli();
     } else {
-       
         runFile(argv[1]);
     }
 

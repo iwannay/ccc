@@ -1,0 +1,14 @@
+#ifdef DEBUG
+    #ifndef _COMPILER_DEBUG_H
+    #define _COMPILER_DEBUG_H
+    #include "utils.h"
+    #include "obj_fn.h"
+    #include "obj_thread.h"
+    void bindDebugFnName(VM* vm, FnDebug* fnDebug, const char* name, uint32_t length);
+    void dumpValue(Value value);
+    void dumpCode(VM* vm, ObjFn* fn);
+    int dumpInstruction(VM* vm, ObjFn* fn, int i);
+    void dumpStack(ObjThread* thread);
+    void debugPrintStackTrace(VM* vm);
+    #endif
+#endif
