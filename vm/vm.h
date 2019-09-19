@@ -6,6 +6,8 @@
 #include "obj_thread.h"
 #include "parser.h"
 
+
+#define MAX_TEMP_ROOTS_NUM 8
 #define OPCODE_SLOTS(opcode, effect) OPCODE_##opcode,
 typedef enum {
     #include "opcode.inc"
@@ -16,6 +18,23 @@ typedef enum vmResult {
     VM_RESULT_SUCCESS,
     VM_RESULT_ERROR
 } VMResult; // 虚拟机执行结果
+
+typedef struct {
+    ObjHeader** grayObjects;
+    uint32_t capacity;
+    uint32_t count;
+} Gray;
+
+typedef struct {
+    // 堆生长因子
+    int heapGrowthFactor;
+    // 初始堆栈大小默认10M
+    uint32_t initialHeapSize;
+    // 最小堆大小,默认1M
+    uint32_t minHeapSize;
+    // 第一次触发gc的堆大小,默认为initialHeapSize
+    uint32_t nextGC;
+} Configuration;
 
 struct vm {
     Class* classOfClass;
@@ -35,6 +54,12 @@ struct vm {
     SymbolTable allMethodNames; // 所有类的方法名
     ObjMap* allModules; 
     ObjThread* curThread; // 当前正在执行的线程
+
+    // 临时的根对象集合,存储被gc保留的对象,避免回收
+    ObjHeader* tmpRoots[MAX_TEMP_ROOTS_NUM];
+    uint32_t tmpRootNum;
+    Gray grays;
+    Configuration config;
 };
 
 void initVM(VM* vm);

@@ -4,6 +4,17 @@
 #include "core.h"
 #include "compiler.h"
 
+void pushTmpRoot(VM* vm, ObjHeader* obj) {
+    ASSERT(obj!= NULL, "root obj is null");
+    ASSERT(vm->tmpRootNum < MAX_TEMP_ROOTS_NUM, "temporary roots too much!");
+    vm->tmpRoots[vm->tmpRootNum++] = obj;
+}
+
+void popTmpRoot(VM* vm) {
+    ASSERT(vm->tmpRootNum < MAX_TEMP_ROOTS_NUM, "temporary roots too much!");
+    vm->tmpRootNum--;
+}
+
 // 确保stack有效
 void ensureStack(VM* vm, ObjThread* objThread, uint32_t neededSots) {
     if (objThread->stackCapacity >= neededSots) {
@@ -590,6 +601,16 @@ void initVM(VM* vm) {
     vm->curParser = NULL;
     StringBufferInit(&vm->allMethodNames);
     vm->allModules = newObjMap(vm);
+    vm->curParser = NULL;
+    vm->config.heapGrowthFactor = 1.5;
+
+    vm->config.minHeapSize = 1024*1024;
+    vm->config.initialHeapSize = 1024*1024*10;
+    vm->config.nextGC = vm->config.initialHeapSize;
+    vm->grays.count = 0;
+    vm->grays.capacity = 32;
+
+    vm->grays.grayObjects = (ObjHeader**)malloc(vm->grays.capacity*sizeof(ObjHeader*));
 }
 
 VM* newVM() {

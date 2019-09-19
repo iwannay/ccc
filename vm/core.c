@@ -997,6 +997,11 @@ static Value getModuleVariable(VM* vm, Value moduleName, Value variableName) {
 static bool primSystemClock(VM* vm UNUSED, Value* args UNUSED) {
     RET_NUM((double)time(NULL));
 }
+// System.gc()
+static bool primSystemGC(VM* vm, Value* args) {
+    startGC(vm);
+    RET_NULL;
+}
 // System.importModule(_): 导入未编译模块args[1], 把模块挂载到vm->allModules
 static bool primSystemImportModule(VM* vm, Value* args) {
     // args[1]模块名
@@ -1622,6 +1627,7 @@ void buildCore(VM* vm) {
     // system类
     Class* systemClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "System"));
     PRIM_METHOD_BIND(systemClass->objHeader.class, "clock", primSystemClock);
+    PRIM_METHOD_BIND(systemClass->objHeader.class, "gc()", primSystemGC);
     PRIM_METHOD_BIND(systemClass->objHeader.class, "importModule(_)", primSystemImportModule);
     PRIM_METHOD_BIND(systemClass->objHeader.class, "getModuleVariable(_,_)", primSystemGetModuleVariable);
     PRIM_METHOD_BIND(systemClass->objHeader.class, "writeString_(_)", primSystemWriteString);
