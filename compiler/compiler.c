@@ -390,7 +390,7 @@ static void infixMethodSignature(CompileUnit* cu, Signature* sign) {
     sign->type = SIGN_METHOD;
     // 中缀运算符只有一个参数,故初始为1
     sign->argNum = 1;
-    consumeCurToken(cu->curParser, TOKEN_LEFT_BRACE, "expect '(' after infix operator!");
+    consumeCurToken(cu->curParser, TOKEN_LEFT_PAREN, "expect '(' after infix operator!");
     consumeCurToken(cu->curParser, TOKEN_ID, "expect variable name!");
     declareLocalVar(cu, cu->curParser->preToken.start, cu->curParser->preToken.length);
     consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after parameter!");
@@ -467,7 +467,7 @@ static int findLocal(CompileUnit* cu, const char* name, uint32_t length) {
     // 从内往外查找变量
     int index = cu->localVarNum - 1;
     while (index >= 0) {
-        if (cu->localVars[index].length == length && memcmp(cu->localVars[index].name, name, length)) {
+        if (cu->localVars[index].length == length && memcmp(cu->localVars[index].name, name, length) == 0) {
             return index;
         }
         index--;
@@ -822,7 +822,7 @@ static void idMethodSignature(CompileUnit* cu, Signature* sign) {
             COMPILE_ERROR(cu->curParser, "constructor shouldn't be setter!");
         }
         // 构造函数必须是method,即new(_,....),new 后面必须接(
-        if (!matchToken(cu->curParser, TOKEN_RIGHT_PAREN)) {
+        if (!matchToken(cu->curParser, TOKEN_LEFT_PAREN)) {
             COMPILE_ERROR(cu->curParser, "constructor must be method!");
         }
 
@@ -870,7 +870,7 @@ static void id(CompileUnit* cu, bool canAssign) {
     if (cu->enclosingUnit == NULL && matchToken(cu->curParser, TOKEN_LEFT_PAREN)) {
         char id[MAX_ID_LEN] = {'\0'};
         // 函数名加上Fn前缀,作为模块变量名
-        memmove(id, "FN ", 3);
+        memmove(id, "Fn ", 3);
         memmove(id+3, name.start, name.length);
         Variable var;
         var.scopeType = VAR_SCOPE_MODULE;
@@ -1536,7 +1536,7 @@ static void compileWhileStatement(CompileUnit* cu) {
 }
 
 // 编译for循环,如 for i (sequence) {循环体}
-static void compileForStatement(CompileUnit* cu) {
+static void compileForStatment(CompileUnit* cu) {
     // for i (sequence) {
     //      System.Print(i)
     // }
@@ -1623,7 +1623,7 @@ static void compileStatment(CompileUnit* cu) {
     } else if (matchToken(cu->curParser, TOKEN_WHILE)) {
         compileWhileStatement(cu);
     } else if (matchToken(cu->curParser, TOKEN_FOR)) {
-        compileForStatement(cu);
+        compileForStatment(cu);
     } else if (matchToken(cu->curParser, TOKEN_RETURN)) {
         compileReturn(cu);
     } else if (matchToken(cu->curParser, TOKEN_BREAK)) {
