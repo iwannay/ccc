@@ -1,8 +1,13 @@
 #include "vm.h"
 #include <stdlib.h>
-#include <utils.h>
+#include "utils.h"
 #include "core.h"
 #include "compiler.h"
+#include "gc.h"
+#ifdef DEBUG
+    #include "debug.h"
+#endif
+
 
 void pushTmpRoot(VM* vm, ObjHeader* obj) {
     ASSERT(obj!= NULL, "root obj is null");
@@ -621,7 +626,7 @@ void freeVM(VM* vm) {
         objHeader = next;
     }
     vm->grays.grayObjects = DEALLOCATE(vm, vm->grays.grayObjects);
-    StringbufferClear(vm, &vm->allMethodNames);
+    StringBufferClear(vm, &vm->allMethodNames);
     DEALLOCATE(vm, vm);
 }
 

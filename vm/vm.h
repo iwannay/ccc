@@ -65,5 +65,8 @@ struct vm {
 void initVM(VM* vm);
 VMResult executeInstruction(VM* vm, register ObjThread* curThread);
 void ensureStack(VM* vm, ObjThread* objThread, uint32_t neededSots);
+void pushTmpRoot(VM* vm, ObjHeader* obj);
+void popTmpRoot(VM* vm);
+void freeVM(VM* vm);
 VM* newVM(void);
 #endif

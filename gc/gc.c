@@ -301,7 +301,7 @@ void startGC(VM* vm) {
     blackObjectInGray(vm);
     // 回收白色对象
     ObjHeader** obj = &vm->allObjects;
-    while (&obj != NULL) {
+    while (*obj != NULL) {
         if (!((*obj)->isDark)) {
             ObjHeader* unreached = *obj;
             *obj = unreached->next;

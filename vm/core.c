@@ -1,7 +1,6 @@
 #include "core.h"
 #include <sys/stat.h>
 #include "vm.h"
-#include "string.h"
 #include "obj_map.h"
 #include "common.h"
 #include "obj_thread.h"
@@ -11,6 +10,13 @@
 #include "obj_range.h"
 #include "unicodeUtf8.h"
 #include "obj_list.h"
+#include "core.script.inc"
+#include <time.h>
+#include <string.h>
+#include <math.h>
+#include <ctype.h>
+#include <errno.h>
+#include "gc.h"
 
 char* rootDir  = NULL; // 根目录
 
@@ -61,7 +67,7 @@ static ObjString* num2Str(VM* vm, double num) {
     if (num != num) {
         return newObjString(vm, "nan", 3);
     }
-    // TODO: 定义INFINITY
+
     if (num == INFINITY) {
         return newObjString(vm, "infinity", 8);
     }
@@ -238,7 +244,7 @@ static bool primNumIsNan(VM* vm UNUSED, Value* args) {
 
 // 数字转换为字符串
 static bool primNumToString(VM* vm UNUSED, Value* args) {
-    RET_OBJ(num2str(vm, VALUE_TO_NUM(args[0])));
+    RET_OBJ(num2Str(vm, VALUE_TO_NUM(args[0])));
 }
 
 // 数字取整
@@ -347,7 +353,7 @@ static uint32_t calculateRange(VM* vm, ObjRange* objRange, uint32_t* countPtr, i
 
 // 以UTF-8编码从sourceStr中起始为startIndex,方向为direction的count个字符创建字符串
 static ObjString* newObjStringFromSub(VM* vm, ObjString* sourceStr, int startIndex, uint32_t count, int direction) {
-    uint8_t* source = (uint8_t)sourceStr->value.start;
+    uint8_t* source = (uint8_t*)sourceStr->value.start;
     uint32_t totalLength = 0, idx = 0;
     while (idx < count) {
         totalLength += getByteNumOfDecodeUtf8(source[startIndex+idx*direction]);
@@ -386,7 +392,7 @@ static int findString(ObjString* haystack, ObjString* needle) {
     }
 
     uint32_t shift[UINT8_MAX];
-    int32_t needleEnd = needle->value.length - 1;
+    uint32_t needleEnd = needle->value.length - 1;
     uint32_t idx = 0;
     while (idx < UINT8_MAX) {
         shift[idx] = needle->value.length;
@@ -449,7 +455,7 @@ static bool primStringPlus(VM* vm, Value* args) {
 static bool primStringSubscript(VM* vm, Value* args) {
     ObjString* objstring = VALUE_TO_OBJSTR(args[0]);
     if (VALUE_IS_NUM(args[1])) {
-        uint32_t index = validateIndex(v, args[1], objstring->value.length);
+        uint32_t index = validateIndex(vm, args[1], objstring->value.length);
         if (index == UINT32_MAX) {
             return false;
         }
@@ -489,7 +495,7 @@ static bool primStringCodePointAt(VM* vm UNUSED, Value* args) {
     if (index == UINT32_MAX) {
         return false;
     }
-    const uint8_t* bytes = (uint8_t)objString->value.start;
+    const uint8_t* bytes = (uint8_t*)objString->value.start;
     if ((bytes[index] & 0xc0) == 0x80) {
         // 如果index指向的并不是utf8编码的最高字节,而是后面的低字节,返回-1提示用户
         RET_NUM(-1);
@@ -635,7 +641,7 @@ static bool primListSubscript(VM* vm, Value* args) {
     }
     int direction;
     uint32_t count = objList->elements.count;
-    uint32_t startIndex = calculateRange(vm, VALUE_TO_OBJSTR(args[1]), &count, &direction);
+    uint32_t startIndex = calculateRange(vm, VALUE_TO_OBJRANGE(args[1]), &count, &direction);
 
     ObjList* result = newObjList(vm, count);
     uint32_t idx = 0;
@@ -743,8 +749,9 @@ static bool validateKey(VM* vm, Value arg) {
         VALUE_IS_OBJSTR(arg) ||
         VALUE_IS_OBJRANGE(arg) ||
         VALUE_IS_CLASS(arg)) {
-            SET_ERROR_FALSE(vm, "key must be value type!");
+            return true;
     }
+    SET_ERROR_FALSE(vm, "key must be value type!");
 }
 
 // objMap.new(): 创建map对象
@@ -956,6 +963,49 @@ static void printString(const char* str) {
     printf("%s", str);
     fflush(stdout);
 }
+
+// 从modules中获取名为moduleName的模块
+static ObjModule* getModule(VM* vm, Value moduleName) {
+    Value value = mapGet(vm->allModules, moduleName);
+    if (value.type == VT_UNDEFINED) {
+        return NULL;
+    }
+    return (ObjModule*)(value.objHeader);
+}
+
+// 载入模块moduleName并编译
+static ObjThread* loadModule(VM* vm, Value moduleName, const char* moduleCode) {
+    // 确保模块已经载入到vm->allModules
+    // 先查看是否已经导入了该模块，避免重新导入
+    ObjModule* module = getModule(vm, moduleName);
+
+    // 若该模块未加载先将其加载，并继承核心模块中的变量
+    if (module == NULL) {
+        // 创建模块并添加到vm->allModules
+        ObjString* modName = VALUE_TO_OBJSTR(moduleName);
+        ASSERT(modName->value.start[modName->value.length] == '\0', "string.value.start is not terminated!");
+        module = newObjModule(vm, modName->value.start);
+        mapSet(vm, vm->allModules, moduleName, OBJ_TO_VALUE(module));
+
+        // 继承核心模块中的变量
+        ObjModule* coreModule = getModule(vm, CORE_MODULE);
+        uint32_t idx = 0;
+        while (idx < coreModule->moduleVarName.count) {
+            defineModuleVar(vm, module, 
+            coreModule->moduleVarName.datas[idx].str,
+            strlen(coreModule->moduleVarName.datas[idx].str),
+            coreModule->moduleVarValue.datas[idx]);
+            idx++;
+        }
+    }
+
+    ObjFn* fn = compileModule(vm, module, moduleCode);
+    ObjClosure* objClosure = newObjClosure(vm, fn);
+    ObjThread* moduleThread = newObjThread(vm, objClosure);
+
+    return moduleThread;
+}
+
 // 导入模块moduleName,主要是编译模块加载到vm->allModules
 static Value importModule(VM* vm, Value moduleName) {
     // 若已经存在则返回null_val
@@ -964,7 +1014,7 @@ static Value importModule(VM* vm, Value moduleName) {
     }
     ObjString* objString = VALUE_TO_OBJSTR(moduleName);
     const char* sourceCode = readModule(objString->value.start);
-    
+
     ObjThread* moduleThread = loadModule(vm, moduleName, sourceCode);
     return OBJ_TO_VALUE(moduleThread);
 }
@@ -1192,7 +1242,6 @@ static bool primThreadCallWithArg(VM* vm, Value* args) {
 static bool primThreadIsDone(VM* vm UNUSED, Value* args) {
     // 获取.isDone的调度者
     ObjThread* objThread = VALUE_TO_OBJTHREAD(args[0]);
-    // TODO: return?
     RET_BOOL(objThread->usedFrameNum == 0 || !VALUE_IS_NULL(objThread->errorObj));
 }
 
@@ -1216,7 +1265,6 @@ static bool primObjectEqual(VM* vm UNUSED, Value* args) {
 }
 
 // args[0] != args[1]: 返回object是否不等
-// TODO
 static bool primObjectNotEqual(VM* vm UNUSED, Value* args) {
     Value boolValue = BOOL_TO_VALUE(!valueIsEqual(args[0], args[1]));
     RET_VALUE(boolValue);
@@ -1292,7 +1340,7 @@ static bool primFnNew(VM* vm, Value* args) {
 
 // 绑定fn.call的重载
 static void bindFnOverloadCall(VM* vm, const char* sign) {
-    uint32_t index = ensureSymbolExist(vm, &vm->allModules, sign, strlen(sign));
+    uint32_t index = ensureSymbolExist(vm, &vm->allMethodNames, sign, strlen(sign));
     Method method = {MT_FN_CALL, {0}};
     bindMethod(vm, vm->fnClass, index, method);
 }
@@ -1388,49 +1436,6 @@ void bindSuperClass(VM* vm, Class* subClass, Class* superClass) {
     }
 }
 
-// 从modules中获取名为moduleName的模块
-static ObjModule* getModule(VM* vm, Value moduleName) {
-    Value value = mapGet(vm->allModules, moduleName);
-    if (value.type == VT_UNDEFINED) {
-        return NULL;
-    }
-    return (ObjModule*)(value.objHeader);
-}
-
-// 载入模块moduleName并编译
-static ObjThread* loadModule(VM* vm, Value moduleName, const char* moduleCode) {
-    // 确保模块已经载入到vm->allModules
-    // 先查看是否已经导入了该模块，避免重新导入
-    ObjModule* module = getModule(vm, moduleName);
-
-    // 若该模块未加载先将其加载，并继承核心模块中的变量
-    if (module == NULL) {
-        // 创建模块并添加到vm->allModules
-        ObjString* modName = VALUE_TO_OBJSTR(moduleName);
-        ASSERT(modName->value.start[modName->value.length] == '\0', "string.value.start is not terminated!");
-        
-        module = newObjModule(vm, modName->value.start);
-        mapSet(vm, vm->allModules, moduleName, OBJ_TO_VALUE(module));
-
-        // 继承核心模块中的变量
-        ObjModule* coreModule = getModule(vm, CORE_MODULE);
-        uint32_t idx = 0;
-        while (idx < coreModule->moduleVarName.count) {
-            defineModuleVar(vm, module, 
-            coreModule->moduleVarName.datas[idx].str,
-            strlen(coreModule->moduleVarName.datas[idx].str),
-            coreModule->moduleVarValue.datas[idx]);
-            idx++;
-        }
-    }
-
-    ObjFn* fn = compileModule(vm, module, moduleCode);
-    ObjClosure* objClosure = newObjClosure(vm, fn);
-    ObjThread* moduleThread = newObjThread(vm, objClosure);
-
-    return moduleThread;
-}
-
 // 编译核心模块
 void buildCore(VM* vm) {
 
@@ -1471,8 +1476,7 @@ void buildCore(VM* vm) {
     vm->objectClass->objHeader.class = objectMetaclass;
     objectMetaclass->objHeader.class = vm->classOfClass;
     vm->classOfClass->objHeader.class = vm->classOfClass; // 元信息类回路，meta类终点
-   // TODO: coreModuleCode,这里顺序有问题
-    // executeModule(vm, CORE_MODULE, coreModuleCode);
+    executeModule(vm, CORE_MODULE, coreModuleCode);
 
     vm->boolClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Bool"));
     PRIM_METHOD_BIND(vm->boolClass, "toString", primBoolToString);
