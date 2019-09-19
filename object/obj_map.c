@@ -118,7 +118,7 @@ static Entry* findEntry(ObjMap* objMap, Value key) {
 
     // 以下开放定址探测
     // 用哈希值对容量取模计算槽位(slot)
-    uint32_t index = hashValue(key) & objMap->capacity;
+    uint32_t index = hashValue(key) % objMap->capacity;
     Entry* entry;
     while (true) {
         entry = &objMap->entries[index];
