@@ -1476,6 +1476,8 @@ void buildCore(VM* vm) {
     vm->objectClass->objHeader.class = objectMetaclass;
     objectMetaclass->objHeader.class = vm->classOfClass;
     vm->classOfClass->objHeader.class = vm->classOfClass; // 元信息类回路，meta类终点
+
+    
     executeModule(vm, CORE_MODULE, coreModuleCode);
 
     vm->boolClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Bool"));

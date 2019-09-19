@@ -21,7 +21,7 @@ void* memManager(VM* vm, void* ptr, uint32_t oldSize, uint32_t newSize) {
     }
     
     if(newSize > 0 && vm->allocatedBytes > vm->config.nextGC) {
-        startGC(vm);
+        // startGC(vm);
     }
 
     return realloc(ptr, newSize);
