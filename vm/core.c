@@ -871,7 +871,177 @@ static bool primMapValueIteratorValue(VM* vm, Value* args) {
 
 }
 
+// objRange.from: 返回range的from
+static bool primRangeFrom(VM* vm UNUSED, Value* args) {
+    RET_NUM(VALUE_TO_OBJRANGE(args[0])->from);
+}
+// objRange.to: 返回range的to
+static bool primRangeTo(VM* vm UNUSED, Value* args) {
+    RET_NUM(VALUE_TO_OBJRANGE(args[0])->to);
+}
+// objRange.min: 返回range中from和to较小的值
+static bool primRangeMin(VM* vm UNUSED, Value* args) {
+    ObjRange* objRange = VALUE_TO_OBJRANGE(args[0]);
+    RET_NUM(fmin(objRange->from, objRange->to));
+}
+// objRange.max: 返回range中from和to较大的值
+static bool primRangeMax(VM* vm UNUSED, Value* args) {
+    ObjRange* objRange = VALUE_TO_OBJRANGE(args[0]);
+    RET_NUM(fmax(objRange->from, objRange->to));
+}
+// objRange.iterate(_): 返回range中的值,并不索引
+static bool primRangeIterate(VM* vm, Value* args) {
+    ObjRange* objRange  = VALUE_TO_OBJRANGE(args[0]);
+    if (VALUE_IS_NULL(args[1])) {
+        RET_NUM(objRange->from);
+    }
+    if (!validateNum(vm, args[1])) {
+        return false;
+    }
+    double iter = VALUE_TO_NUM(args[1]);
+    if (objRange->from < objRange->to) {
+        iter++;
+        if (iter > objRange->to) {
+            RET_FALSE;
+        }
+    } else { // 反向迭代
+        iter--;
+        if (iter < objRange->to) {
+            RET_FALSE;
+        }
+    }
+    RET_NUM(iter);
+}
 
+// objRange.iteratorValue(_): range的迭代就是range中从from到to之间的值
+// 因此直接返回迭代器就是range的值
+static bool primRangeIteratorValue(VM* vm UNUSED, Value* args) {
+    ObjRange* objRange = VALUE_TO_OBJRANGE(args[0]);
+    double value = VALUE_TO_NUM(args[1]);
+    if (objRange->from < objRange->to) {
+        if (value >= objRange->from && value <= objRange->to) {
+            RET_VALUE(args[1]);
+        }
+    } else {    // 反向迭代
+        if (value <= objRange->from && value >= objRange->to) {
+            RET_VALUE(args[1]);
+        }
+    }
+    RET_FALSE;
+}
+
+// 获取文件全路径
+static char* getFilePath(const char* moduleName) {
+    uint32_t rootDirLength = rootDir == NULL ? 0 : strlen(rootDir);
+    uint32_t nameLength = strlen(moduleName);
+    uint32_t pathLength = rootDirLength + nameLength + strlen(".sp");
+    char* path = (char*)malloc(pathLength + 1);
+    if (rootDir != NULL) {
+        memmove(path, rootDir, rootDirLength);
+    }
+    memmove(path + rootDirLength, moduleName, nameLength);
+    memmove(path + rootDirLength + nameLength, ".sp", 3);
+    path[pathLength] = '\0';
+    return path;
+}
+// 读取模块
+static char* readModule(const char* moduleName) {
+    char* modulePath = getFilePath(moduleName);
+    char* moduleCode = readFile(modulePath);
+    free(modulePath);
+    return moduleCode;
+}
+// 输出字符串
+static void printString(const char* str) {
+    printf("%s", str);
+    fflush(stdout);
+}
+// 导入模块moduleName,主要是编译模块加载到vm->allModules
+static Value importModule(VM* vm, Value moduleName) {
+    // 若已经存在则返回null_val
+    if (!(VALUE_IS_UNDEFINED(mapGet(vm->allModules, moduleName)))) {
+        return VT_TO_VALUE(VT_NULL);
+    }
+    ObjString* objString = VALUE_TO_OBJSTR(moduleName);
+    const char* sourceCode = readModule(objString->value.start);
+    
+    ObjThread* moduleThread = loadModule(vm, moduleName, sourceCode);
+    return OBJ_TO_VALUE(moduleThread);
+}
+// 在模块moduleName中获取模块变量variableName
+static Value getModuleVariable(VM* vm, Value moduleName, Value variableName) {
+    ObjModule* objModule = getModule(vm, moduleName);
+    if (objModule == NULL) {
+        ObjString* modName = VALUE_TO_OBJSTR(moduleName);
+        // 24是下面sprintf中fmt中除%s的字符个数
+        ASSERT(modName->value.length < 512-24, "id's buffer not big enough!");
+        char id[512] = {'\0'};
+        int len = sprintf(id, "module \'%s\' is not loaded!", modName->value.start);
+        vm->curThread->errorObj = OBJ_TO_VALUE(newObjString(vm, id, len));
+        return VT_TO_VALUE(VT_NULL);
+    }
+    ObjString* varName = VALUE_TO_OBJSTR(variableName);
+    int index = getIndexFromSymbolTable(&objModule->moduleVarName, varName->value.start, varName->value.length);
+    if (index == -1) {
+        // 32是下面sprintf中fmt中除%s的字符个数
+        ASSERT(varName->value.length < 512-32, "id's buffer not big enough!");
+        ObjString* modName = VALUE_TO_OBJSTR(moduleName);
+        char id[512] = {'\0'};
+        int len = sprintf(id, "variable \'%s\' is not in module \'%s\'!", varName->value.start, modName->value.start);
+        vm->curThread->errorObj = OBJ_TO_VALUE(newObjString(vm, id, len));
+        return VT_TO_VALUE(VT_NULL);
+    }
+    return objModule->moduleVarValue.datas[index];
+}
+// System.clock: 返回秒为单位的系统时钟
+static bool primSystemClock(VM* vm UNUSED, Value* args UNUSED) {
+    RET_NUM((double)time(NULL));
+}
+// System.importModule(_): 导入未编译模块args[1], 把模块挂载到vm->allModules
+static bool primSystemImportModule(VM* vm, Value* args) {
+    // args[1]模块名
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    Value result = importModule(vm, args[1]);
+    if (VALUE_IS_NULL(result)) { // 已经导入返回null
+        RET_NULL;
+    }
+    // 若编译过程除了问题,切换到下一线程
+    if (!VALUE_IS_NULL(vm->curThread->errorObj)) {
+        return false;
+    }
+    // 回收一个slot
+    // TODO: check
+    vm->curThread->esp--;
+    ObjThread* nextThread = VALUE_TO_OBJTHREAD(result);
+    nextThread->caller = vm->curThread;
+    vm->curThread = nextThread;
+    return false;
+}
+
+// System.getModuleVariable(_,_): 获得模块args[1]中的模块变量args[2]
+static bool primSystemGetModuleVariable(VM* vm, Value* args) {
+    if (!validateString(vm, args[1])) {
+        return false;
+    }
+    if (!validateString(vm, args[2])) {
+        return false;
+    }
+    Value result = getModuleVariable(vm, args[1], args[2]);
+    if (VALUE_IS_NULL(result)) {
+        // 出错给vm返回false切换线程
+        return false;
+    }
+    RET_VALUE(result);
+}
+// System.writeString_(_): 输出字符串args[1]
+static bool primSystemWriteString(VM* vm UNUSED, Value* args) {
+    ObjString* objString = VALUE_TO_OBJSTR(args[1]);
+    ASSERT(objString->value.start[objString->value.length] == '\0', "string isn't terminated!");
+    printString(objString->value.start);
+    RET_VALUE(args[1]);
+}
 
 
 
@@ -1439,6 +1609,32 @@ void buildCore(VM* vm) {
     PRIM_METHOD_BIND(vm->mapClass, "iterate_(_)", primMapIterate);
     PRIM_METHOD_BIND(vm->mapClass, "keyIteratorValue_(_)", primMapKeyIteratorValue);
     PRIM_METHOD_BIND(vm->mapClass, "valueIteratorValue_(_)", primMapValueIteratorValue);
+    
+    // range 类
+    vm->rangeClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "Range"));
+    PRIM_METHOD_BIND(vm->rangeClass, "from", primRangeFrom);
+    PRIM_METHOD_BIND(vm->rangeClass, "to", primRangeTo);
+    PRIM_METHOD_BIND(vm->rangeClass, "min", primRangeMin);
+    PRIM_METHOD_BIND(vm->rangeClass, "max", primRangeMax);
+    PRIM_METHOD_BIND(vm->rangeClass, "iterate(_)", primRangeIterate);
+    PRIM_METHOD_BIND(vm->rangeClass, "iteratorValue(_)", primRangeIteratorValue);
+
+    // system类
+    Class* systemClass = VALUE_TO_CLASS(getCoreClassValue(coreModule, "System"));
+    PRIM_METHOD_BIND(systemClass->objHeader.class, "clock", primSystemClock);
+    PRIM_METHOD_BIND(systemClass->objHeader.class, "importModule(_)", primSystemImportModule);
+    PRIM_METHOD_BIND(systemClass->objHeader.class, "getModuleVariable(_,_)", primSystemGetModuleVariable);
+    PRIM_METHOD_BIND(systemClass->objHeader.class, "writeString_(_)", primSystemWriteString);
+
+    // 核心自举过程中穿件了很多ObjString对象,创建过程中调用initObjHeader初始化对象头
+    // 使其class指向vm->stringClass,但那时vm->stringClass未初始化,现在更正
+    ObjHeader* objHeader = vm->allObjects;
+    while (objHeader != NULL) {
+        if (objHeader->type == OT_STRING) {
+            objHeader->class = vm->stringClass;
+        }
+        objHeader = objHeader->next;
+    }
 }
 
 // 执行模块
