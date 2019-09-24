@@ -1872,7 +1872,7 @@ static void compileImport(CompileUnit* cu) {
     writeOpCodeShortOperand(cu, OPCODE_LOAD_CONSTANT, constModIdx);
     // 调用
     emitCall(cu, 1, "importModule(_)", 15);
-    // 回收返回值args[0]所子啊空间
+    // 回收返回值args[0]的空间
     writeOpCode(cu, OPCODE_POP);
     
     if (!matchToken(cu->curParser, TOKEN_FOR)) {
@@ -1925,7 +1925,7 @@ ObjFn* compileModule(VM* vm, ObjModule* objModule, const char* moduleCode) {
     }
     CompileUnit moduleCU;
     initCompileUnit(&parser, &moduleCU, NULL, false);
-    // 记录现在模块变量的数量, 后面检查预订以模块变量时可减少遍历
+    // 记录现在模块变量的数量, 后面检查预定义模块变量时可减少遍历
     uint32_t moduleVarNumBefor = objModule->moduleVarValue.count;
     // 初始的parser->curToken.type为TOKEN_UNKNOWN,下面使其指向第一个合法的token
     getNextToken(&parser);

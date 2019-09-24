@@ -11,7 +11,6 @@ ObjMap* newObjMap(VM* vm) {
     objMap->capacity = objMap->count = 0;
     objMap->entries = NULL;
     return objMap;
-
 }
 
 // 计算数字的哈希码
@@ -128,7 +127,7 @@ static Entry* findEntry(ObjMap* objMap, Value key) {
             return entry;
         }
 
-        // key为VT_UNDEFINED且value为VT——TRUE表示探测链未断可继续探测
+        // key为VT_UNDEFINED且value为VT_TRUE表示探测链未断可继续探测
         // key为VT_UNDEFINED且value为VT_FALSE表示探测链结束
 
         if (VALUE_IS_UNDEFINED(entry->key) && VALUE_IS_FALSE(entry->value)) {

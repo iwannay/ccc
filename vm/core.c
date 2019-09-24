@@ -1446,6 +1446,8 @@ void buildCore(VM* vm) {
     mapSet(vm, vm->allModules, CORE_MODULE, OBJ_TO_VALUE(coreModule));
 
     // 创建object类并绑定方法
+    // 根据签名从vm->allMethodNames中查找方法签名
+    // 不存在签名时把签名记录到allMethodNames中,然后根据把allMethodNames中的索引记录到当前class.methods中
     vm->objectClass = defineClass(vm, coreModule, "object");
     PRIM_METHOD_BIND(vm->objectClass, "!", primObjectNot);
     PRIM_METHOD_BIND(vm->objectClass, "==(_)", primObjectEqual);

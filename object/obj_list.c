@@ -2,7 +2,7 @@
 
 // 新建list对象，元素个数为elementNum
 ObjList* newObjList(VM* vm, uint32_t elementNum) {
-    // 村粗list元素的缓冲区
+    // 存储list元素的缓冲区
     Value* elementArray = NULL;
     // 先分配内存，后调用initObjHeader, 避免多次gc
     if (elementNum > 0) {
