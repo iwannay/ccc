@@ -63,16 +63,18 @@ void errorReport(void* parser, ErrorType errorType, const char* fmt, ...) {
 
     switch (errorType) {
         case ERROR_IO:
+            fprintf(stderr, "\033[31m%s\033[0m\n", buffer);
+            break;
         case ERROR_MEM:
-            fprintf(stderr, "%s:%d In function %s(): %s\n", __FILE__, __LINE__, __func__, buffer);
+            fprintf(stderr, "\033[31m%s:%d In function %s(): %s\033[0m\n", __FILE__, __LINE__, __func__, buffer);
             break;
         case ERROR_LEX:
         case ERROR_COMPILE:
             ASSERT(parser != NULL, "parser is null!");
-            fprintf(stderr, "%s:%d \"%s\"\n", ((Parser*)parser)->file, ((Parser*)parser)->preToken.lineNo, buffer);
+            fprintf(stderr, "\033[31m%s:%d \"%s\"\033[0m\n", ((Parser*)parser)->file, ((Parser*)parser)->preToken.lineNo, buffer);
             break;
         case ERROR_RUNTIME:
-            fprintf(stderr, "%s\n", buffer);
+            fprintf(stderr, "\033[31m%s\033[0m\n", buffer);
             break;
         default:
             NOT_REACHED();

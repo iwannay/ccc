@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "parser.h"
+#include "utils.h"
 #include "vm.h"
 #include "core.h"
 
@@ -22,13 +23,31 @@ static void runFile(const char* path) {
 static void runCli(void) {
     VM* vm = newVM();
     char sourceLine[MAX_LINE_LEN];
-    printf("ccc version: 0.1\n");
+    char source[MAX_SOURCE_CODE_LEN];
+    char endStr = '\n';
+    printf("\033[36mccc version: 0.1\033[0m\n");
+    
     while (true) {
-        printf(">>> ");
+        if (endStr == '\\') {
+            printf("\033[32m...\033[0m ");
+        } else {
+            printf("\033[34m>>>\033[0m ");
+        }
+        
         if (!fgets(sourceLine, MAX_LINE_LEN, stdin) || memcmp(sourceLine, "quit", 4) == 0) {
             break;
-        } 
-        executeModule(vm, OBJ_TO_VALUE(newObjString(vm, "cli", 3)), sourceLine);
+        }
+        int l = strlen(sourceLine);
+        endStr = sourceLine[l-2]; 
+        strcat(source, sourceLine);
+        if (strlen(source) >= MAX_SOURCE_CODE_LEN) {
+            IO_ERROR("source code len exceeded %d", MAX_SOURCE_CODE_LEN);
+        } else if (endStr != '\\') {
+            executeModule(vm, OBJ_TO_VALUE(newObjString(vm, "cli", 3)), source);
+        } else {
+            source[strlen(source)-2] = ' ';
+        }
+        
     }
     freeVM(vm);
 }
