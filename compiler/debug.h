@@ -7,7 +7,7 @@
     void bindDebugFnName(VM* vm, FnDebug* fnDebug, const char* name, uint32_t length);
     void dumpValue(Value value);
     void dumpCode(VM* vm, ObjFn* fn);
-    int dumpInstruction(VM* vm, ObjFn* fn, int i);
+    void dumpInstructions(VM* vm, ObjFn* fn);
     void dumpStack(ObjThread* thread);
     void debugPrintStackTrace(VM* vm);
     #endif

@@ -14,7 +14,6 @@ static void runFile(const char* path) {
         root[lastSlash - path + 1] = '\0';
         rootDir = root;
     }
-    printf("There is something to do...\n");exit(0);
     VM* vm = newVM(); 
     const char* sourceCode = readFile(path);
     executeModule(vm, OBJ_TO_VALUE(newObjString(vm, path, strlen(path))), sourceCode);

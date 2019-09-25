@@ -259,7 +259,7 @@ static void initCompileUnit(Parser* parser, CompileUnit* cu, CompileUnit* enclos
 // 往函数指令流中写入1字节,返回索引
 static int writeByte(CompileUnit* cu, int byte) {
     #if DEBUG
-        IntByfferAdd(cu->curParser->vm, &cu->fn->debug->lineNo, cu->curParser->preToken.lineNo);
+        IntBufferAdd(cu->curParser->vm, &cu->fn->debug->lineNo, cu->curParser->preToken.lineNo);
     #endif
     ByteBufferAdd(cu->curParser->vm, &cu->fn->instrStream, (uint8_t)byte);
     // 从0开始,实际长度需要-1
@@ -689,7 +689,7 @@ static void compileBody(CompileUnit* cu, bool isConstruct) {
 // 结束cu的编译工作,并在外层为其创建闭包
 #if DEBUG
 static ObjFn* endCompileUnit(CompileUnit* cu, const char* debugName, uint32_t debugNameLen) {
-    bindDebugFnName(cu->curparser->vm, cu->fu->debug, debugName, debugNameLen);
+    bindDebugFnName(cu->curParser->vm, cu->fn->debug, debugName, debugNameLen);
 #else
 static ObjFn* endCompileUnit(CompileUnit* cu) {
 #endif
@@ -776,10 +776,10 @@ static void emitGetterMethodCall(CompileUnit* cu, Signature* sign, OpCode opCode
         compileBody(&fnCU, false);
 #if DEBUG
         // 以此函数被传给的方法来命名这个函数, 函数名=方法名+" block arg"
-        char fnName[MAX_SIGN_LEN+10] = {'\0'}   // "block arg\0"
+        char fnName[MAX_SIGN_LEN+10] = {'\0'};   // "block arg\0"
         uint32_t len = sign2String(&newSign, fnName);
-        memove(fnName+len, " block arg", 10);
-        endCompileUnit(&fnCU);
+        memmove(fnName+len, " block arg", 10);
+        endCompileUnit(&fnCU, fnName, len + 10);
 #else
         endCompileUnit(&fnCU);
 #endif
@@ -1033,7 +1033,7 @@ static uint32_t emitInstrWithPlaceholder(CompileUnit* cu, OpCode opCode) {
 static void patchPlaceholder(CompileUnit* cu, uint32_t absIndex) {
     uint32_t offset = cu->fn->instrStream.count - absIndex - 2;
     // 先回填高8位
-    cu->fn->instrStream.datas[absIndex] = (offset >> 8) | 0xff;
+    cu->fn->instrStream.datas[absIndex] = (offset >> 8) & 0xff;
     // 低8位
     cu->fn->instrStream.datas[absIndex+1] = offset & 0xff;
 }
@@ -1723,7 +1723,7 @@ static void compileMethod(CompileUnit* cu, Variable classVar, bool isStatic) {
     compileBody(&methodCU, sign.type == SIGN_CONSTRUCT);
 
 #if DEBUG
-endCompileUnit(&methodCU, signatrueString, signLen);
+endCompileUnit(&methodCU, signatureString, signLen);
 #else
 endCompileUnit(&methodCU);
 #endif
@@ -1840,7 +1840,7 @@ static void compileFunctionDefinition(CompileUnit* cu) {
     compileBody(&fnCU, false);
 
 #if DEBUG
-    endCompileUnit(&fnCU, fnName, strlen(fnName))
+    endCompileUnit(&fnCU, fnName, strlen(fnName));
 #else
     endCompileUnit(&fnCU);
 #endif

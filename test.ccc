@@ -1,0 +1,23 @@
+/*
+    ccc 演示代码
+*/
+
+class People {
+   var age
+   var gender
+   var name
+   bonus=(v) {
+      bonus = v 
+   }
+   new(age, gender, name) {
+      age = age
+      gender = gender
+      name = name
+   }
+   instro() {
+    System.print("You are age:")
+   }
+}
+
+var p = People.new("18", "girl", "ccc")
+p.instro()

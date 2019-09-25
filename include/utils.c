@@ -71,7 +71,7 @@ void errorReport(void* parser, ErrorType errorType, const char* fmt, ...) {
         case ERROR_LEX:
         case ERROR_COMPILE:
             ASSERT(parser != NULL, "parser is null!");
-            fprintf(stderr, "\033[31m%s:%d \"%s\"\033[0m\n", ((Parser*)parser)->file, ((Parser*)parser)->preToken.lineNo, buffer);
+            fprintf(stderr, "\033[31m%s:%d %s\033[0m\n", ((Parser*)parser)->file, ((Parser*)parser)->preToken.lineNo, buffer);
             break;
         case ERROR_RUNTIME:
             fprintf(stderr, "\033[31m%s\033[0m\n", buffer);

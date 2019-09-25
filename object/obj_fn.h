@@ -52,7 +52,7 @@ typedef struct {
     ObjClosure* closure;
 
     // frame 是共享thread.stack
-    // 此项用于指向本irame所在thread运行时栈的起始地址
+    // 此项用于指向本ifame所在thread运行时栈的起始地址
     Value* stackStart;
 } Frame; // 调用框架
 

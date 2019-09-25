@@ -108,7 +108,7 @@ static void blackFn(VM* vm, ObjFn* fn) {
     vm->allocatedBytes += sizeof(uint8_t) * fn->instrStream.capacity;
     vm->allocatedBytes += sizeof(Value) * fn->constants.capacity;
 #if DEBUG
-    VM->allocatedBytes += sizeof(Int) * fn->instrStream.capacity;
+    vm->allocatedBytes += sizeof(Int) * fn->instrStream.capacity;
 #endif
 }
 

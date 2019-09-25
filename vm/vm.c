@@ -251,7 +251,7 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             // stackStart[0]是实例对象this
             ASSERT(VALUE_IS_OBJINSTANCE(stackStart[0]), "method receiver should be objInstance!");
             ObjInstance* objInstance = VALUE_TO_OBJINSTANCE(stackStart[0]);
-            ASSERT(fieldIdx < ObjInstance->objHeader.class->fieldNum, "out of bounds field!");
+            ASSERT(fieldIdx < objInstance->objHeader.class->fieldNum, "out of bounds field!");
             PUSH(objInstance->fields[fieldIdx]);
             LOOP();
         }
@@ -431,7 +431,7 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             Value receiver = POP();
             ASSERT(VALUE_IS_OBJINSTANCE(receiver), "receiver should be instance!");
             ObjInstance* objInstance = VALUE_TO_OBJINSTANCE(receiver);
-            ASSERT(fieldIdx < ObjInstance->objHeader.class->fieldNum, "out of bounds field!");
+            ASSERT(fieldIdx < objInstance->objHeader.class->fieldNum, "out of bounds field!");
             objInstance->fields[fieldIdx] = PEEK();
             LOOP();
         }
@@ -453,7 +453,7 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             // 栈顶：跳转条件bool值
             // 指令流：2字节的跳转偏移量
             int16_t offset = READ_SHORT();
-            ASSERT(offset>0, "OPCODE_JUMP_IF_FALSE's operand must be positive");
+            ASSERT(offset > 0, "OPCODE_JUMP_IF_FALSE's operand must be positive");
             Value condition = POP();
             if (VALUE_IS_FALSE(condition) || VALUE_IS_NULL(condition)) {
                 ip += offset;
@@ -585,6 +585,8 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
         }
         CASE(END):
             NOT_REACHED();
+        default:
+            printf("%d", opCode);
     }
     NOT_REACHED();
     

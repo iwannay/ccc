@@ -1,4 +1,4 @@
-#if DEBUG
+#ifdef DEBUG
     #include <stdio.h>
     #include "debug.h"
     #include "vm.h"
@@ -6,7 +6,7 @@
 
     // 在fnDebug中绑定函数名
     void bindDebugFnName(VM* vm, FnDebug* fnDebug, const char* name, uint32_t length) {
-        ASSERT(fnDebug->fnName = = NULL, "debug.name has bound!");
+        ASSERT(fnDebug->fnName == NULL, "debug.name has bound!");
         fnDebug->fnName = ALLOCATE_ARRAY(vm, char, length + 1);
         memcpy(fnDebug->fnName, name, length);
         fnDebug->fnName[length] = '\0';
@@ -110,10 +110,10 @@
             case OPCODE_PUSH_NULL: printf("PUSH_NULL\n");break;
             case OPCODE_PUSH_FALSE: printf("PUSH_FALSE\n");break;
             case OPCODE_PUSH_TRUE: printf("PUSH_TRUE\n");break;
-            case OPCODE_LOAD_LOCAL_VAR: printf("LOAD_LOCAL_VAR");
-            case OPCODE_STORE_LOCAL_VAR: printf("STORE_LOCAL_VAR");
-            case OPCODE_LOAD_UPVALUE: printf("LOAD_UPVALUE");
-            case OPCODE_STORE_UPVALUE: printf("STORE_UPVALUE");
+            case OPCODE_LOAD_LOCAL_VAR: BYTE_INSTRUCTION("LOAD_LOCAL_VAR");
+            case OPCODE_STORE_LOCAL_VAR: BYTE_INSTRUCTION("STORE_LOCAL_VAR");
+            case OPCODE_LOAD_UPVALUE: BYTE_INSTRUCTION("LOAD_UPVALUE");
+            case OPCODE_STORE_UPVALUE: BYTE_INSTRUCTION("STORE_UPVALUE");
             case OPCODE_LOAD_MODULE_VAR: {
                 int slot = READ_SHORT();
                 printf("%-16s %5d '%s'\n", "LOAD_MODULE_VAR", slot, fn->module->moduleVarName.datas[slot].str);
@@ -150,7 +150,7 @@
             case OPCODE_CALL16: {
                 int numArgs = byteCode[i-1] - OPCODE_CALL0;
                 int symbol = READ_SHORT();
-                printf("CAL%-11D %5d '%s'\n", numArgs, symbol, vm->allMethodNames.datas[symbol].str);
+                printf("CAL%-11d %5d '%s'\n", numArgs, symbol, vm->allMethodNames.datas[symbol].str);
                 break;
             }
             case OPCODE_SUPER0:

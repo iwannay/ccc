@@ -10,7 +10,7 @@ typedef enum {
     MT_NONE, // 空方法类型，并不等同于undefined
     MT_PRIMITIVE, // 在vm中用c实现的原生方法
     MT_SCRIPT, // 脚本中定义的方法
-    MT_FN_CALL // 有关函数对象的调用方法，已嗯来实现函数的重载
+    MT_FN_CALL // 有关函数对象的调用方法，实现函数的重载
 } MethodType; // 方法类型
 
 #define VT_TO_VALUE(vt) ((Value){vt, {0}})

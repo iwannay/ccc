@@ -17,7 +17,7 @@ typedef struct class Class;
     #define ASSERT(condition, errMsg) \
     do {\
         if (!(condition)) {\
-            fprintf(stderr, "ASSERT failed! %s:%d In function %s(): %s\n", \
+            fprintf(stderr, "\033[31mASSERT failed! %s:%d In function %s(): %s\033[0m\n", \
             __FILE__, __LINE__, __func__, errMsg); \
             abort();\
         }\
@@ -28,7 +28,7 @@ typedef struct class Class;
 
 #define NOT_REACHED()\
     do {\
-        fprintf(stderr, "NOT_REACHED: %s:%d In function %s()\n", __FILE__, __LINE__, __func__);\
+        fprintf(stderr, "\033[31mNOT_REACHED: %s:%d In function %s()\033[0m\n", __FILE__, __LINE__, __func__);\
         while (1);\
     } while(0);
 #endif

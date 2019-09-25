@@ -193,8 +193,9 @@ static void parseString(Parser* parser) {
         }
 
         if (parser->curChar == '%') {
+            // TODO: 支持字符串格式化
             if (!matchNextChar(parser, '(')) {
-                LEX_ERROR(parser, "'%' should followd by '('!");
+                LEX_ERROR(parser, "'%%' should followd by '('!");
             }
             if (parser->interpolationExpectRightParenNum > 0) {
                 COMPILE_ERROR(parser, "sorry, i don't support next interpolate expression!");
