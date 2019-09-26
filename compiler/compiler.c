@@ -31,7 +31,7 @@ struct compileUnit {
     // 当前正在编译的训话层
     Loop* curLoop;
 
-    // 当前正在beanie类的编译信息
+    // 当前正在编译类的编译信息
     ClassBookKeep* enclosingClassBK;
 
     // 包含此编译单元的编译单元,即直接外层
@@ -351,7 +351,7 @@ static int declareLocalVar(CompileUnit* cu, const char* name, uint32_t length) {
     }
     // 判断当前作用域中变量是否已经存在
     int idx = (int)cu->localVarNum-1;
-    while (idx <= 0) {
+    while (idx >= 0) {
         LocalVar* var = &cu->localVars[idx];
         // 只在当前作用域检查变量,到了父级作用域就退处
         if (var->scopeDepth < cu->scopeDepth) {
@@ -866,7 +866,7 @@ static void id(CompileUnit* cu, bool canAssign) {
     // 标识符可以是任意符号
     // 处理顺序:函数调用->局部调用和upvalue->实例域->静态域->类getter方法调用->模块变量
 
-    // 处理函数调用
+    // 处理函数调用, id此时为函数名
     if (cu->enclosingUnit == NULL && matchToken(cu->curParser, TOKEN_LEFT_PAREN)) {
         char id[MAX_ID_LEN] = {'\0'};
         // 函数名加上Fn前缀,作为模块变量名
@@ -1343,7 +1343,7 @@ static void compileVarDefinition(CompileUnit* cu, bool isStatic) {
     } else {
         writeOpCode(cu, OPCODE_PUSH_NULL);
     }
-    uint32_t index = declareLocalVar(cu, name.start, name.length);
+    uint32_t index = declareVariable(cu, name.start, name.length);
     defineVariable(cu, index);
 }
 
@@ -1637,6 +1637,7 @@ static void compileStatment(CompileUnit* cu) {
         leaveScope(cu);
     } else {
         expression(cu, BP_LOWEST);
+        // 弹出栈顶数据
         writeOpCode(cu, OPCODE_POP);
     }
 }

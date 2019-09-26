@@ -301,6 +301,15 @@ void getNextToken(Parser* parser) {
     parser->curToken.length = 0;
     parser->curToken.start = parser->nextCharPtr - 1;
     parser->curToken.value = VT_TO_VALUE(VT_UNDEFINED);
+    #ifdef DEBUG
+    #include "token.list"
+    printf("%dL: %15s [", parser->preToken.lineNo, tokenArray[parser->preToken.type]);
+    for (uint32_t i = 0; i < parser->preToken.length; i++) {
+        printf("%c", *(parser->preToken.start+i));
+    }
+    printf("]\n");
+    #endif
+   
     while (parser->curChar != '\0') {
         switch (parser->curChar) {
             case ',':

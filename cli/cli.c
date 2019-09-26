@@ -31,6 +31,7 @@ static void runCli(void) {
             printf("\033[32m...\033[0m ");
         } else {
             printf("\033[34m>>>\033[0m ");
+            memset(source, 0, sizeof(source));
         }
         
         if (!fgets(sourceLine, MAX_LINE_LEN, stdin) || memcmp(sourceLine, "quit", 4) == 0) {
