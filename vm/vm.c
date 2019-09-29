@@ -560,9 +560,9 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             // 指令流：1字节的field数量
             // 栈顶：基类 次栈顶：子类名
             uint32_t fieldNum = READ_BYTE();
-            Value superClass = curThread->esp[-1]; // 基类名
+            Value superClass = curThread->esp[-1]; // 基类
             Value className = curThread->esp[-2]; // 子类名
-            // 回收基类占用的空间，次栈顶保留，创建的类会直接用该控件
+            // 回收基类占用的空间，次栈顶保留，创建的类会直接用该空间
             DROP();
             validateSuperClass(vm, className, fieldNum, superClass);
             Class* class = newClass(vm, VALUE_TO_OBJSTR(className), fieldNum, VALUE_TO_CLASS(superClass));

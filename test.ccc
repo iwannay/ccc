@@ -3,21 +3,14 @@
 */
 
 class People {
-   var age
-   var gender
    var name
-   bonus=(v) {
-      bonus = v 
-   }
-   new(age, gender, name) {
-      age = age
-      gender = gender
+   new(name) {
       name = name
    }
    instro() {
-    System.print("You are age:")
+      System.print("You name is: " + name)
    }
 }
 
-var p = People.new("18", "girl", "ccc")
+var p = People.new("ccc")
 p.instro()

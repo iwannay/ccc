@@ -1,9 +1,5 @@
 # 这是一个功能健全的编译器
 
-## 感想
-
-失败只是因为我们自己放弃了.
-
 ## 关于这个小语言
 
 简单起见语言就叫 ccc, 主要用于学习之用. 整个语言实现基于郑刚的 "自制编程语言" 这本书. 感谢郑刚! 没有他的这本书就不会有 ccc. 向每一位知识的传递者致敬. ccc 以后也会继续更新, 用于实践自己的一些小的技术上的想法.
@@ -220,5 +216,24 @@ typedef struct objThread {
     Value errorObj;
 } ObjThread; // 线程对象
 ```
+
+## 执行流程
+
+### 赋值
+
+形如 var a = "hello world" 编译器按如下步骤解析:
+
+1. 词法分析生成 token(词素), 遍历 token,token.name = "var",此时 token.type == TOKEN_VAR 进入 compileVarDefinition 分支
+2. token.name = a,此时 token.type = TOKEN_ID, 记录变量名 varName
+3. token.name = "=" 此时调用 express() 计算右值
+4. token.name = "hello world" 进入字符串的.nud()方法,即 literal()方法. 将字符串字面量"hello world" 写入常量表 fn->constants 中,并返回索引 index
+5. 向 cu->fn->instrStream 依次写入操作码:OPCODE_LOAD_CONSTANT 操作数: index
+6. 在模块变量名符号表 module->moduleVarName.datas 中写入 varName 记录索引 symbolIndex
+7. 向 fn->instrStream 依次写入操作码:OPCODE_STORE_MODULE_VAR 操作数:symbolIndex, 操作码:OPCODE_POP
+
+编译器生成对应字节码后,下一步需要虚拟机解析字节码并执行:
+
+1. 执行 OPCODE_LOAD_CONSTANT 将 fn->constants[index] 压栈(thread->esp++ = fn->constants[index])
+2. 执行 OPCODE_STORE_MODULE_VAR, fn->module->moduleVarValue.datas[symbolIndex] = thread->esp-1. 完毕
 
 ## 垃圾回收
