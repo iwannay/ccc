@@ -284,7 +284,7 @@ static int writeByteOperand(CompileUnit* cu, int operand) {
 // 按大端写入两字节的操作数 
 inline static void writeShortOperand(CompileUnit* cu, int operand) {
     writeByte(cu, (operand >> 8) & 0xff); // 低地址写高位
-    writeByte(cu, operand&0xff);
+    writeByte(cu, operand & 0xff);
 }
 
 // 写入操作数为1字节的指令
@@ -889,7 +889,7 @@ static void id(CompileUnit* cu, bool canAssign) {
         sign.name = "call";
         sign.length = 4;
         sign.argNum = 0;
-        if (matchToken(cu->curParser, TOKEN_RIGHT_PAREN)) {
+        if (!matchToken(cu->curParser, TOKEN_RIGHT_PAREN)) {
             processArgList(cu, &sign);
             consumeCurToken(cu->curParser, TOKEN_RIGHT_PAREN, "expect ')' after argument list!");
         }
@@ -1241,6 +1241,9 @@ SymbolBindRule Rules[] = {
 static void expression(CompileUnit* cu, BindPower rbp) {
     DenotationFn nud = Rules[cu->curParser->curToken.type].nud;
     // 表达式开头的要么是操作数,要么是前缀运算符,必然存在nud方法
+    if (nud == NULL) {
+        printf("nud is NULL!");
+    }
     ASSERT(nud != NULL, "nud is NULL!");
     getNextToken(cu->curParser);
     bool canAssign = rbp < BP_ASSIGN;
@@ -1733,6 +1736,7 @@ endCompileUnit(&methodCU);
     if (sign.type == SIGN_CONSTRUCT) {
         sign.type = SIGN_METHOD;
         char signatureString[MAX_SIGN_LEN] = {'\0'};
+        uint32_t signLen = sign2String(&sign, signatureString);
         uint32_t constructIndex = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signatureString, signLen);
         emitCreateInstance(cu, &sign, methodIndex);
         // 构造函数是静态方法,即类方法

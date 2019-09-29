@@ -1,7 +1,7 @@
 import people for People
 
-func fn() {
-    var p = People.new("xiaoming", "male", 20.0)
+fun hi() {
+    var p = People.new("iwannay", "male", 30.0)
     p.sayHi()
 }
 
@@ -14,11 +14,10 @@ class Family < People {
         father = f
         mother = m
         child = c
-        super("wbf", "male", 60)
+        super("hua", "male", 28)
     }
 }
 
 var f = Family.new("wbf", "ls", "shine")
 f.sayHi()
-
-fn()
+hi()

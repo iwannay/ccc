@@ -438,6 +438,7 @@ static bool primStringPlus(VM* vm, Value* args) {
     }
     ObjString* left = VALUE_TO_OBJSTR(args[0]);
     ObjString* right = VALUE_TO_OBJSTR(args[1]);
+    
     uint32_t totalLength = strlen(left->value.start) + strlen(right->value.start);
     ObjString* result = ALLOCATE_EXTRA(vm, ObjString, totalLength+1);
     if (result == NULL) {
@@ -447,6 +448,8 @@ static bool primStringPlus(VM* vm, Value* args) {
     memcpy(result->value.start, left->value.start, strlen(left->value.start));
     memcpy(result->value.start+strlen(left->value.start), right->value.start, strlen(right->value.start));
     result->value.start[totalLength] = '\0';
+    result->value.length = totalLength;
+
     hashObjString(result);
     RET_OBJ(result);
 }
@@ -941,13 +944,13 @@ static bool primRangeIteratorValue(VM* vm UNUSED, Value* args) {
 static char* getFilePath(const char* moduleName) {
     uint32_t rootDirLength = rootDir == NULL ? 0 : strlen(rootDir);
     uint32_t nameLength = strlen(moduleName);
-    uint32_t pathLength = rootDirLength + nameLength + strlen(".sp");
+    uint32_t pathLength = rootDirLength + nameLength + strlen(".ccc");
     char* path = (char*)malloc(pathLength + 1);
     if (rootDir != NULL) {
         memmove(path, rootDir, rootDirLength);
     }
     memmove(path + rootDirLength, moduleName, nameLength);
-    memmove(path + rootDirLength + nameLength, ".sp", 3);
+    memmove(path + rootDirLength + nameLength, ".ccc", 4);
     path[pathLength] = '\0';
     return path;
 }

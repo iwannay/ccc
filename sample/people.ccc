@@ -1,0 +1,17 @@
+/*
+    ccc 演示代码
+*/
+
+class People {
+   var age
+   var name
+   var gender
+   new(n, g, a) {
+      name = n
+      age = a
+      gender = g
+   }
+   sayHi() {
+      System.print("hello " + name + ", you are a " + age.toString + " years old " + gender)
+   }
+}

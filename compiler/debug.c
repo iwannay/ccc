@@ -14,7 +14,7 @@
 
     // 打印栈
     void dumpStack(ObjThread* thread) {
-        printf("(thread %p) stack:%p, esp:%p,, slots:%ld ", thread, thread->stack, thread->esp, thread->esp-thread->stack);
+        printf("(thread %p) stack:%p, esp:%p, slots:%ld ", thread, thread->stack, thread->esp, thread->esp-thread->stack);
         Value* slot = thread->stack;
         while (slot < thread->esp) {
             dumpValue(*slot);
@@ -55,7 +55,7 @@
                 printf("[range %p]", obj);
                 break;
             case OT_STRING:
-                printf("[%s]", ((ObjString*)obj)->value.start);
+                printf("%s", ((ObjString*)obj)->value.start);
                 break;
             case OT_UPVALUE:
                 printf("[upvalue %p]", obj);
@@ -90,9 +90,9 @@
                 *lastLine = lineNo;
             }
         } else {
-            printf("    ");
+            printf("     ");
         }
-        printf(" %04d ", i++); // 输出指令流中的位置
+        printf("  %04d  ", i++); // 输出指令流中的位置
         #define READ_BYTE() (byteCode[i++])
         #define READ_SHORT() (i += 2, (byteCode[i-2]<<8) | byteCode[i-1])
         #define BYTE_INSTRUCTION(name)\
@@ -150,7 +150,7 @@
             case OPCODE_CALL16: {
                 int numArgs = byteCode[i-1] - OPCODE_CALL0;
                 int symbol = READ_SHORT();
-                printf("CAL%-11d %5d '%s'\n", numArgs, symbol, vm->allMethodNames.datas[symbol].str);
+                printf("CALL%-11d %5d '%s'\n", numArgs, symbol, vm->allMethodNames.datas[symbol].str);
                 break;
             }
             case OPCODE_SUPER0:
@@ -259,7 +259,7 @@
     }
     // 打印指令
     void dumpInstructions(VM* vm, ObjFn* fn) {
-        printf("module: [%s]\tfunction:[%s]\n", fn->module->name == NULL ? "<core>" : fn->module->name->value.start, fn->debug->fnName);
+        printf("module: [%s]\t\tfunction:[%s]\n\n", fn->module->name == NULL ? "<core>" : fn->module->name->value.start, fn->debug->fnName);
         int i = 0;
         int lastLine = -1;
         while (true) {

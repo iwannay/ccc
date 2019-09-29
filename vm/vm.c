@@ -242,6 +242,13 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
     #define LOOP() goto loopStart
 
     LOAD_CUR_FRAME();
+    #ifdef DEBUG
+        printf("-------------------------------------------------------------\n");
+        printf("stack:\n");
+        dumpStack(curThread);
+        printf("\ninstructions:\n");
+        dumpInstructions(vm, fn);
+    #endif
     DECODE {
         CASE(LOAD_LOCAL_VAR):
             PUSH(stackStart[READ_BYTE()]);
@@ -333,7 +340,7 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
                 class = VALUE_TO_CLASS(fn->constants.datas[READ_SHORT()]);
             invokeMethod:
                 if ((uint32_t)index > class->methods.count || (method = &class->methods.datas[index])->type == MT_NONE) {
-                    RUN_ERROR("method '%s' not found!", vm->allMethodNames.datas[index].str);
+                    RUN_ERROR("%d | method '%s' not found!",index, vm->allMethodNames.datas[index].str);
                 }
                 switch (method->type) {
                     case MT_PRIMITIVE:
