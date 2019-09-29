@@ -236,4 +236,21 @@ typedef struct objThread {
 1. 执行 OPCODE_LOAD_CONSTANT 将 fn->constants[index] 压栈(thread->esp++ = fn->constants[index])
 2. 执行 OPCODE_STORE_MODULE_VAR, fn->module->moduleVarValue.datas[symbolIndex] = thread->esp-1. 完毕
 
-## 垃圾回收
+## 垃圾回收(待续)
+
+## 启动
+
+```sh
+# debug模式编译（打印词素，操作码，操作数）
+make -f makefile.debug r
+# 普通模式编译
+make r
+
+# 交互式命令行模式运行
+./ccc
+
+# 文件模式运行
+./ccc sample/family.ccc 
+```
+
+    
