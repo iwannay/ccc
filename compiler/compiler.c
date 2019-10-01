@@ -606,7 +606,7 @@ static void emitStoreVariable(CompileUnit* cu, Variable var) {
         writeOpCodeByteOperand(cu, OPCODE_STORE_LOCAL_VAR, var.index);
         break;
     case VAR_SCOPE_UPVALUE:
-        writeOpCodeByteOperand(cu, OPCODE_STORE_LOCAL_VAR, var.index);
+        writeOpCodeByteOperand(cu, OPCODE_STORE_UPVALUE, var.index);
         break;
     case VAR_SCOPE_MODULE:
         writeOpCodeShortOperand(cu, OPCODE_STORE_MODULE_VAR, var.index);
@@ -957,7 +957,7 @@ static void id(CompileUnit* cu, bool canAssign) {
         if (var.index == -1) {
             // 模块变量属于模块作用域,若当前引用处未定义该模块变量
             // 可能后面有定义,所以先声明,待模块统计完后再检查
-            // 用关键字func定义的函数是以Fn后接函数名作为模块变量
+            // 用关键字fun定义的函数是以Fn后接函数名作为模块变量
             // 加上Fn前缀按照函数名重新查找
             char fnName[MAX_SIGN_LEN+4] = {'\0'};
             memmove(fnName, "Fn ", 3);

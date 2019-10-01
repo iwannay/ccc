@@ -1,10 +1,5 @@
 import people for People
 
-fun hi() {
-    var p = People.new("iwannay", "male", 30.0)
-    p.sayHi()
-}
-
 class Family < People {
     var father
     var mother
@@ -16,6 +11,11 @@ class Family < People {
         child = c
         super("hua", "male", 28)
     }
+}
+
+fun hi() {
+    var p = People.new("iwannay", "male", 30.0)
+    p.sayHi()
 }
 
 var f = Family.new("wbf", "ls", "shine")
