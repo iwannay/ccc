@@ -157,7 +157,7 @@ struct class {
 }; // 对象类
 ```
 
-类是对象的模板, 每个对象都会关联到一个具体的类上 class.Methods 中记录了该类中所有的方法, 需要说明的是,class.Methods.datas 中的索引记录是实际是 vm.allMethodNames 中的索引,vm 是 ccc 中使用的虚拟机
+类是对象的模板, 每个对象都会关联到一个具体的类上, class.Methods 中记录了该类中所有的方法, 需要说明的是,class.Methods.datas 中的索引记录实际是 vm.allMethodNames 中的索引,vm 是 ccc 中使用的虚拟机
 
 ## vm (虚拟机)
 

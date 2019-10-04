@@ -1,0 +1,5 @@
+fun a(m, n) {
+    var q = 4+n
+    System.print("result:"+ (m+q).toString)
+}
+a(1,2)

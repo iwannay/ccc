@@ -696,6 +696,7 @@ static ObjFn* endCompileUnit(CompileUnit* cu) {
     writeOpCode(cu, OPCODE_END);
     if (cu->enclosingUnit != NULL) {
         // 把当前编译单元作为常量添加到父编译单元的常量表
+        // 这里特指类方法
         uint32_t index = addConstant(cu->enclosingUnit, OBJ_TO_VALUE(cu->fn));
         // 内层函数以闭包的形式在外层函数中存在
         // 在外层函数的指令流中添加"创建闭包"
@@ -1653,6 +1654,8 @@ static void emitStoreModuleVar(CompileUnit* cu, int index) {
 }
 
 // 声明方法
+// 方法签名记录在vm->allMethodNames中
+// 方法记录在class->methods中，两者使用相同的索引
 static int declareMethod(CompileUnit* cu, char* signStr, uint32_t length) {
     // 确保方法被录入到vm->allMethodNames
     int index = ensureSymbolExist(cu->curParser->vm, &cu->curParser->vm->allMethodNames, signStr, length);
