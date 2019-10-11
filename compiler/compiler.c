@@ -696,7 +696,6 @@ static ObjFn* endCompileUnit(CompileUnit* cu) {
     writeOpCode(cu, OPCODE_END);
     if (cu->enclosingUnit != NULL) {
         // 把当前编译单元作为常量添加到父编译单元的常量表
-        // 这里特指类方法
         uint32_t index = addConstant(cu->enclosingUnit, OBJ_TO_VALUE(cu->fn));
         // 内层函数以闭包的形式在外层函数中存在
         // 在外层函数的指令流中添加"创建闭包"
@@ -1524,7 +1523,7 @@ static void compileLoopBody(CompileUnit* cu) {
     compileStatment(cu);
 }
 
-// 比那以while循环,如while(a<b){循环体}
+// 编译while循环,如while(a<b){循环体}
 static void compileWhileStatement(CompileUnit* cu) {
     Loop loop;
     // 设置循环体起始地址

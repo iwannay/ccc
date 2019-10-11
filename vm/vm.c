@@ -545,6 +545,9 @@ VMResult executeInstruction(VM* vm, register ObjThread* curThread) {
             // endCompileUnit已经将闭包函数添加进了常量表
             ObjFn* objFn = VALUE_TO_OBJFN(fn->constants.datas[READ_SHORT()]);
             ObjClosure* objClosure = newObjClosure(vm, objFn);
+            // 这里压栈后会有弹栈操作把变量保存到对应的位置
+            // 函数会调用STORE_MODULE_VAR保存闭包
+            // 方法会先调用LOAD_MODULE_VAR加载对应的class， 然后调用STATIC_METHOD/INSTANCE_METHOD，将闭包绑定到class上
             PUSH(OBJ_TO_VALUE(objClosure));
             uint32_t idx  = 0;
             while (idx < objFn->upvalueNum) { 
